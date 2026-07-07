@@ -13,6 +13,7 @@ import {
 } from "../assets/audio-tools.js";
 import { indexSfxLibrary, pickSfxForScene, defaultPlayback } from "../assets/sfx-selector.js";
 import { composeTemplate } from "./template-composer.js";
+import { writeSubtitleFiles, type SubtitleCue } from "./subtitles.js";
 import { fitClipToDuration, concatVideos, muxAudioOntoVideo } from "./video-tools.js";
 import { log } from "../utils/logger.js";
 
@@ -27,6 +28,16 @@ const TYPE_TO_SFX: Record<string, string> = {
   body: "callout",
   outro: "outro",
 };
+
+async function jsonMatches(path: string, expected: unknown): Promise<boolean> {
+  if (!existsSync(path)) return false;
+  try {
+    const current = JSON.parse(await readFile(path, "utf8"));
+    return JSON.stringify(current) === JSON.stringify(expected);
+  } catch {
+    return false;
+  }
+}
 
 export async function runTemplatePipeline(scriptPath: string): Promise<void> {
   const cfg = loadConfig();
@@ -47,19 +58,29 @@ export async function runTemplatePipeline(scriptPath: string): Promise<void> {
   const ttsClient = createTtsClient(cfg);
   const limit = pLimit(cfg.ttsConcurrency);
   const voiceDir = join(outputDir, "voice");
+  const voiceName = script.voice.name?.trim();
+  const ttsOptions = { voiceName, speed: script.voice.speed };
+  log.info(`  voice preset: ${voiceName || "server default"} (${script.voice.speed}x)`);
   await mkdir(voiceDir, { recursive: true });
   const sceneAudio = await Promise.all(
     script.scenes.map((scene) =>
       limit(async () => {
         const out = join(voiceDir, `scene-${scene.id}.mp3`);
         const srtOut = join(voiceDir, `scene-${scene.id}.srt`);
-        if (existsSync(out)) {
+        const metaOut = join(voiceDir, `scene-${scene.id}.meta.json`);
+        const cacheMeta = {
+          text: scene.voiceText,
+          voiceName: voiceName ?? null,
+          speed: script.voice.speed,
+        };
+        if (existsSync(out) && (await jsonMatches(metaOut, cacheMeta))) {
           const dur = await getDurationSec(out);
           log.info(`  scene ${scene.id}: REUSE mp3 (${dur.toFixed(2)}s)`);
           return { id: scene.id, path: out, durationSec: dur };
         }
         log.info(`  TTS scene ${scene.id} (${scene.voiceText.length} chars)...`);
-        await ttsClient.generate(scene.voiceText, out, srtOut);
+        await ttsClient.generate(scene.voiceText, out, srtOut, ttsOptions);
+        await writeFile(metaOut, `${JSON.stringify(cacheMeta, null, 2)}\n`, "utf8");
         const dur = await getDurationSec(out);
         log.info(`  scene ${scene.id}: ${dur.toFixed(2)}s`);
         return { id: scene.id, path: out, durationSec: dur };
@@ -75,10 +96,25 @@ export async function runTemplatePipeline(scriptPath: string): Promise<void> {
 
   let cursor = 0;
   const sceneStarts: Record<string, number> = {};
+  const sceneAudioById = new Map(sceneAudio.map((a) => [a.id, a]));
   for (const a of sceneAudio) {
     sceneStarts[a.id] = cursor;
     cursor += a.durationSec + SCENE_GAP_SEC;
   }
+
+  const subtitleCues: SubtitleCue[] = script.scenes.map((scene, index) => {
+    const audio = sceneAudioById.get(scene.id);
+    if (!audio) throw new Error(`Missing audio timing for scene: ${scene.id}`);
+    const startSec = sceneStarts[scene.id];
+    return {
+      index: index + 1,
+      startSec,
+      endSec: startSec + audio.durationSec,
+      text: scene.voiceText,
+    };
+  });
+  await writeSubtitleFiles(outputDir, subtitleCues);
+  log.info("  subtitles: subtitle.srt, subtitle.vtt, subtitle.ass");
 
   // STEP 5 — SFX selection + mix
   log.step(5, TOTAL_STEPS, "Pick + mix SFX");
@@ -152,5 +188,6 @@ export async function runTemplatePipeline(scriptPath: string): Promise<void> {
   console.log(`Video:  ${videoPath}`);
   console.log(`Audio:  ${voiceMp3}  (cho CapCut)`);
   console.log(`Script: ${join(outputDir, "script.txt")}  (cho CapCut auto-caption)`);
+  console.log(`Subs:   ${join(outputDir, "subtitle.srt")} / subtitle.vtt / subtitle.ass`);
   console.log(`Tong thoi luong: ${totalAudioSec.toFixed(2)}s`);
 }

@@ -43,6 +43,8 @@ export const TemplateScriptSchema = z.object({
   }),
   voice: z.object({
     provider: z.literal("omnivoice").default("omnivoice"),
+    /** Optional voice preset. VieNeu bridge accepts this when it supports per-request voices. */
+    name: z.string().min(1).optional(),
     speed: z.number().min(0.5).max(2.0),
   }),
   /** Output aspect for every scene (templates render a matching composition). */

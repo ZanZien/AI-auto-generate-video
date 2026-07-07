@@ -9,6 +9,7 @@
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "pipeline": "tsx src/cli.ts",
+    "web": "tsx src/web/server.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "sfx:download": "tsx scripts/download-sfx.ts",

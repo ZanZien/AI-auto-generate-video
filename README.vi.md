@@ -48,6 +48,7 @@ Shorts / Reels:
 | `video.mp4`  | Video 9:16 hoàn chỉnh, đã có giọng đọc + SFX |
 | `voice.mp3`  | Riêng track giọng đọc — kéo thẳng vào CapCut |
 | `script.txt` | File text thô — để CapCut tự bắt phụ đề      |
+| `subtitle.srt` / `.vtt` / `.ass` | Phụ đề đã có timing — dùng cho VLC / YouTube / phần mềm dựng |
 
 ---
 
@@ -152,7 +153,7 @@ Pipeline chạy 8 bước, lần nào cũng như lần nấy — code ở [`src/
 | 1   | **Kiểm tra**       | `script.json` được validate theo schema Zod                   |
 | 2   | **Văn bản phụ đề** | `script.txt` — gộp toàn bộ `voiceText` (CapCut auto-caption)  |
 | 3   | **TTS / scene**    | `voice/scene-<id>.mp3` qua OmniVoice _(idempotent)_           |
-| 4   | **Ghép giọng**     | `voice-raw.mp3` chèn 0.3s nghỉ + tính mốc thời gian mỗi scene |
+| 4   | **Ghép giọng**     | `voice-raw.mp3` chèn 0.3s nghỉ + xuất phụ đề có timing        |
 | 5   | **Trộn SFX**       | `voice.mp3` — chèn hiệu ứng âm thanh lên giọng đọc            |
 | 6   | **Render clip**    | `clips/scene-<id>-fit.mp4` — template → MP4, fit theo giọng   |
 | 7   | **Ghép + mux**     | `video-silent.mp4` → `video.mp4` (ghép giọng vào)             |
@@ -173,6 +174,7 @@ Pipeline chạy 8 bước, lần nào cũng như lần nấy — code ở [`src/
 | **FFmpeg + ffprobe**  | bản mới   | phải có trong PATH (`ffmpeg -version`)                                |
 | **Chrome / Chromium** | bất kỳ    | HyperFrames dùng để render từng template                              |
 | **OmniVoice server**  | đang chạy | TTS local tại `OMNIVOICE_ENDPOINT` (mặc định `http://127.0.0.1:8123`) |
+| **OpenAI API key**    | tuỳ chọn  | dành cho bản nâng cấp sinh trực tiếp sau này; chế độ tạo prompt chưa cần |
 | **Claude Code CLI**   | tuỳ chọn  | chỉ cần cho skill `/create-template-video`                            |
 
 **Cài FFmpeg:**
@@ -193,6 +195,9 @@ Pipeline chạy 8 bước, lần nào cũng như lần nấy — code ở [`src/
 ```env
 TTS_PROVIDER=omnivoice
 OMNIVOICE_ENDPOINT=http://127.0.0.1:8123
+# Tuỳ chọn/sau này: sinh trực tiếp bằng API. Chế độ tạo prompt chưa cần dòng này.
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-5.5
 ```
 
 Server chỉ cần nhận `POST /tts` kèm `{ text }` và trả về bytes `audio/mpeg` là đủ.
@@ -202,6 +207,26 @@ Server chỉ cần nhận `POST /tts` kèm `{ text }` và trả về bytes `audi
 ---
 
 ## 🎬 Sử dụng
+
+**Web UI** — nhập idea, tạo prompt, copy sang ChatGPT, dán lại `script.json`,
+rồi validate, lưu hoặc render:
+
+```bash
+npm run web
+```
+
+Mở `http://127.0.0.1:3210`. Chế độ này không gọi AI API từ repo nên chưa cần
+`OPENAI_API_KEY`; bước render vẫn cần TTS server local đang chạy.
+
+Trong Web UI có thể chọn giọng VieNeu. Lựa chọn này sẽ được ghi vào:
+
+```json
+"voice": { "provider": "omnivoice", "name": "Bình An", "speed": 1.0 }
+```
+
+Pipeline sẽ gửi tên giọng này sang `POST /tts`. Nếu âm thanh vẫn không đổi giọng,
+VieNeu bridge của bạn đang chỉ đọc `VIENEU_VOICE` lúc khởi động và cần được bổ sung
+hỗ trợ field `voice` / `voiceName` trong request.
 
 **Trong Claude Code** _(khuyến nghị)_ — truyền URL hoặc file `.txt`:
 
@@ -294,6 +319,9 @@ Vài luật bắt buộc của schema: **3–12 scene**, scene đầu phải là
 output/<slug>-<timestamp>/
 ├── script.json          # đầu vào (skill sinh hoặc viết tay)
 ├── script.txt           # gộp voiceText — cho CapCut auto-caption
+├── subtitle.srt         # phụ đề có timing theo từng scene
+├── subtitle.vtt         # phụ đề WebVTT (YouTube / trình duyệt)
+├── subtitle.ass         # phụ đề ASS có style (VLC / phần mềm dựng)
 ├── voice/
 │   ├── scene-hook.mp3    # TTS từng scene (idempotent)
 │   └── scene-*.mp3

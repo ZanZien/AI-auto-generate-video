@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Video Studio</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>AI Video Studio</h1>
+        <p id="statusText">Local web UI: tao prompt, validate script, luu va render video.</p>
+      </div>
+      <div class="top-actions">
+        <span id="modelBadge" class="badge">no api</span>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="panel left-panel">
+        <div class="section-title">
+          <h2>Idea</h2>
+          <span>1</span>
+        </div>
+
+        <label for="idea">Y tuong video</label>
+        <textarea id="idea" rows="7" placeholder="Vi du: clip day nau mi trung ca chua cho nguoi moi bat dau"></textarea>
+
+        <div class="form-grid">
+          <div>
+            <label for="style">Phong cach</label>
+            <select id="style">
+              <option value="giang day ngan gon, than thien">Giang day</option>
+              <option value="vui nhon, nhanh, co punchline">Vui nhon</option>
+              <option value="tin tuc nhanh, ro y chinh">Tin tuc</option>
+              <option value="review thuc te, co so sanh">Review</option>
+            </select>
+          </div>
+          <div>
+            <label for="sceneCount">So canh</label>
+            <input id="sceneCount" type="number" min="3" max="8" value="6" />
+          </div>
+          <div>
+            <label for="channel">Kenh</label>
+            <input id="channel" value="AI Video" />
+          </div>
+          <div>
+            <label for="voiceName">Giong doc</label>
+            <select id="voiceName">
+              <option value="">Theo JSON / bridge</option>
+              <option value="Ngọc Linh">Ngọc Linh</option>
+              <option value="Ngọc Lan">Ngọc Lan</option>
+              <option value="Mỹ Duyên">Mỹ Duyên</option>
+              <option value="Trúc Ly">Trúc Ly</option>
+              <option value="Gia Bảo">Gia Bảo</option>
+              <option value="Thái Sơn">Thái Sơn</option>
+              <option value="Đức Trí">Đức Trí</option>
+              <option value="Xuân Vĩnh">Xuân Vĩnh</option>
+              <option value="Trọng Hữu">Trọng Hữu</option>
+              <option value="Bình An">Bình An</option>
+            </select>
+          </div>
+          <div>
+            <label for="slug">Thu muc output</label>
+            <input id="slug" placeholder="auto" />
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="promptBtn" class="primary" type="button">Tao prompt</button>
+          <button id="copyPromptBtn" type="button">Copy prompt</button>
+        </div>
+
+        <label for="promptBox">Prompt cho ChatGPT</label>
+        <textarea id="promptBox" class="prompt-editor" spellcheck="false" placeholder="Bam Tao prompt, copy noi dung nay sang ChatGPT, roi dan script.json vao khung ben phai."></textarea>
+      </section>
+
+      <section class="panel editor-panel">
+        <div class="section-title">
+          <h2>Script</h2>
+          <span>2</span>
+        </div>
+
+        <label for="scriptEditor">script.json tu ChatGPT</label>
+        <textarea id="scriptEditor" class="code-editor" spellcheck="false" placeholder="Dan JSON vao day. Co the dan ca block ```json ... ```"></textarea>
+
+        <div class="button-row">
+          <button id="formatBtn" type="button">Format JSON</button>
+          <button id="applyVoiceBtn" type="button">Gan giong</button>
+          <button id="validateBtn" type="button">Validate</button>
+          <button id="saveBtn" type="button">Luu script</button>
+          <button id="renderBtn" class="primary" type="button">Render video</button>
+        </div>
+
+        <div id="result" class="result">
+          <div class="result-line">Chua co output.</div>
+        </div>
+      </section>
+
+      <section class="panel preview-panel">
+        <div class="section-title">
+          <h2>Preview</h2>
+          <span>3</span>
+        </div>
+        <video id="videoPreview" controls playsinline></video>
+      </section>
+    </main>
+  </body>
+</html>

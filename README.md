@@ -48,6 +48,7 @@ CapCut / TikTok / Shorts / Reels:
 | `video.mp4`  | Final 9:16 video with voice + SFX baked in |
 | `voice.mp3`  | Narration track — drop into CapCut         |
 | `script.txt` | Plain text — CapCut auto-caption           |
+| `subtitle.srt` / `.vtt` / `.ass` | Timed scene subtitles for VLC / YouTube / NLEs |
 
 ---
 
@@ -152,7 +153,7 @@ Eight deterministic steps in [`src/render/template-pipeline.ts`](src/render/temp
 | 1   | **Validate**     | `script.json` checked against the Zod schema                  |
 | 2   | **Caption text** | `script.txt` — all `voiceText` joined (CapCut auto-caption)   |
 | 3   | **TTS / scene**  | `voice/scene-<id>.mp3` via OmniVoice _(idempotent)_           |
-| 4   | **Concat voice** | `voice-raw.mp3` with 0.3s gaps + per-scene start times        |
+| 4   | **Concat voice** | `voice-raw.mp3` with 0.3s gaps + timed subtitles              |
 | 5   | **SFX mix**      | `voice.mp3` — sound effects layered onto the narration        |
 | 6   | **Render clips** | `clips/scene-<id>-fit.mp4` — template → MP4, fit to narration |
 | 7   | **Concat + mux** | `video-silent.mp4` → `video.mp4` (voice muxed in)             |
@@ -173,6 +174,7 @@ Eight deterministic steps in [`src/render/template-pipeline.ts`](src/render/temp
 | **FFmpeg + ffprobe**  | any modern | must be in PATH (`ffmpeg -version`)                                 |
 | **Chrome / Chromium** | any        | used by HyperFrames to render each template                         |
 | **OmniVoice server**  | running    | local TTS at `OMNIVOICE_ENDPOINT` (default `http://127.0.0.1:8123`) |
+| **OpenAI API key**    | optional   | reserved for future direct AI generation; not needed for manual prompt mode |
 | **Claude Code CLI**   | optional   | only for the `/create-template-video` skill                         |
 
 **Install FFmpeg:**
@@ -193,6 +195,9 @@ OmniVoice is the only TTS provider, and it's local — **no API keys.**
 ```env
 TTS_PROVIDER=omnivoice
 OMNIVOICE_ENDPOINT=http://127.0.0.1:8123
+# Optional/future: direct AI generation. Manual prompt mode does not need this.
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-5.5
 ```
 
 The server must accept `POST /tts` with `{ text }` and return `audio/mpeg` bytes.
@@ -202,6 +207,26 @@ The server must accept `POST /tts` with `{ text }` and return `audio/mpeg` bytes
 ---
 
 ## 🎬 Usage
+
+**Web UI** — enter an idea, generate a prompt, copy it to ChatGPT, paste the
+returned `script.json`, then validate, save, or render:
+
+```bash
+npm run web
+```
+
+Open `http://127.0.0.1:3210`. This mode does not call any AI API from the repo;
+rendering still requires the local TTS server.
+
+The Web UI can also set a VieNeu voice preset. It writes the choice into:
+
+```json
+"voice": { "provider": "omnivoice", "name": "Bình An", "speed": 1.0 }
+```
+
+The pipeline sends that voice name to `POST /tts`. If the rendered audio still
+uses the same voice, your VieNeu bridge is still reading only `VIENEU_VOICE` at
+startup and needs request-level `voice` / `voiceName` support.
 
 **Inside Claude Code** _(recommended)_ — pass a URL or a local `.txt`:
 
@@ -295,6 +320,9 @@ every `templateId` must exist under `templates/`.
 output/<slug>-<timestamp>/
 ├── script.json          # input (skill-generated or hand-written)
 ├── script.txt           # all voiceText joined — CapCut auto-caption
+├── subtitle.srt         # timed scene subtitles
+├── subtitle.vtt         # WebVTT subtitles (YouTube / browsers)
+├── subtitle.ass         # styled ASS subtitles (VLC / NLEs)
 ├── voice/
 │   ├── scene-hook.mp3    # TTS per scene (idempotent)
 │   └── scene-*.mp3
