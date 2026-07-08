@@ -2,11 +2,15 @@ const els = {
   statusText: document.querySelector("#statusText"),
   modelBadge: document.querySelector("#modelBadge"),
   idea: document.querySelector("#idea"),
+  rawScript: document.querySelector("#rawScript"),
   style: document.querySelector("#style"),
   sceneCount: document.querySelector("#sceneCount"),
   channel: document.querySelector("#channel"),
   voiceName: document.querySelector("#voiceName"),
+  voiceRefAudio: document.querySelector("#voiceRefAudio"),
+  voiceRefFile: document.querySelector("#voiceRefFile"),
   slug: document.querySelector("#slug"),
+  generateScriptBtn: document.querySelector("#generateScriptBtn"),
   promptBtn: document.querySelector("#promptBtn"),
   copyPromptBtn: document.querySelector("#copyPromptBtn"),
   promptBox: document.querySelector("#promptBox"),
@@ -20,13 +24,49 @@ const els = {
   videoPreview: document.querySelector("#videoPreview"),
 };
 
+const availableVoices = [
+  "Tr\u00fac Ly",
+  "Ph\u1ea1m Tuy\u00ean",
+  "Th\u00e1i S\u01a1n",
+  "Xu\u00e2n V\u0129nh",
+  "Thanh B\u00ecnh",
+  "Minh \u0110\u1ee9c",
+  "Ng\u1ecdc Linh",
+  "\u0110oan Trang",
+  "Mai Anh",
+  "Th\u1ee5c \u0110oan",
+];
+
+function syncVoiceOptions() {
+  const current = els.voiceName.value;
+  els.voiceName.innerHTML = "";
+
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = "Theo JSON / bridge";
+  els.voiceName.appendChild(defaultOption);
+
+  for (const voice of availableVoices) {
+    const option = document.createElement("option");
+    option.value = voice;
+    option.textContent = voice;
+    els.voiceName.appendChild(option);
+  }
+
+  if (availableVoices.includes(current)) {
+    els.voiceName.value = current;
+  }
+}
+
 function formPayload() {
   return {
     idea: els.idea.value.trim(),
+    rawScript: els.rawScript.value.trim(),
     style: els.style.value,
     sceneCount: Number(els.sceneCount.value || 6),
     channel: els.channel.value.trim() || "AI Video",
     voiceName: els.voiceName.value.trim(),
+    voiceRefAudio: els.voiceRefAudio.value.trim(),
     slug: els.slug.value.trim(),
   };
 }
@@ -53,6 +93,27 @@ async function postJson(url, body) {
     throw new Error(data.error || response.statusText);
   }
   return data;
+}
+
+async function uploadVoiceRefIfNeeded() {
+  const file = els.voiceRefFile.files?.[0];
+  if (!file) return els.voiceRefAudio.value.trim();
+
+  const response = await fetch("/api/upload-ref-audio", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "X-Filename": encodeURIComponent(file.name),
+    },
+    body: await file.arrayBuffer(),
+  });
+  const data = await response.json();
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.error || response.statusText);
+  }
+  els.voiceRefAudio.value = data.refAudio;
+  els.voiceRefFile.value = "";
+  return data.refAudio;
 }
 
 function clearResult() {
@@ -121,14 +182,17 @@ function extractJsonObject(text) {
 
 function applySelectedVoice(script) {
   const voiceName = els.voiceName.value.trim();
-  if (!voiceName) return script;
+  const refAudio = els.voiceRefAudio.value.trim();
+  if (!voiceName && !refAudio) return script;
 
   script.voice = {
     provider: script.voice?.provider || "omnivoice",
     speed: typeof script.voice?.speed === "number" ? script.voice.speed : 1,
     ...script.voice,
-    name: voiceName,
   };
+  if (voiceName) script.voice.name = voiceName;
+  else if (refAudio) delete script.voice.name;
+  if (refAudio) script.voice.refAudio = refAudio;
   return script;
 }
 
@@ -165,6 +229,27 @@ async function createPrompt() {
   }
 }
 
+async function generateScriptFromRaw() {
+  const payload = formPayload();
+  if (!payload.rawScript) throw new Error("Dan kich ban san truoc.");
+
+  setBusy(els.generateScriptBtn, true, "Dang sinh...");
+  try {
+    payload.voiceRefAudio = await uploadVoiceRefIfNeeded();
+    const data = await postJson("/api/script-from-text", {
+      ...payload,
+      title: payload.idea,
+    });
+    els.slug.value = data.slug;
+    els.scriptEditor.value = `${JSON.stringify(data.script, null, 2)}\n`;
+    clearResult();
+    addResultLine(`Da sinh script.json: ${data.title}`);
+    addResultLine(`So scene: ${data.sceneCount}. Co the bam Validate, Luu script hoac Render video.`);
+  } finally {
+    setBusy(els.generateScriptBtn, false);
+  }
+}
+
 async function copyPrompt() {
   if (!els.promptBox.value.trim()) throw new Error("Chua co prompt de copy.");
   await navigator.clipboard.writeText(els.promptBox.value);
@@ -179,18 +264,20 @@ function formatScript() {
   addResultLine("JSON da duoc format.");
 }
 
-function applyVoiceToEditor() {
+async function applyVoiceToEditor() {
+  await uploadVoiceRefIfNeeded();
   const script = readScriptJson({ applyVoice: true });
   els.scriptEditor.value = `${JSON.stringify(script, null, 2)}\n`;
   clearResult();
   addResultLine(
-    els.voiceName.value.trim()
-      ? `Da gan giong: ${els.voiceName.value.trim()}`
+    els.voiceName.value.trim() || els.voiceRefAudio.value.trim()
+      ? `Da gan giong: ${els.voiceName.value.trim() || "bridge default"}${els.voiceRefAudio.value.trim() ? " + audio clone" : ""}`
       : "Chua chon giong, JSON duoc giu nguyen.",
   );
 }
 
 async function validateScript() {
+  await uploadVoiceRefIfNeeded();
   const script = readScriptJson({ applyVoice: true });
   els.scriptEditor.value = `${JSON.stringify(script, null, 2)}\n`;
   const data = await postJson("/api/validate-script", { script });
@@ -200,6 +287,7 @@ async function validateScript() {
 }
 
 async function saveScript() {
+  await uploadVoiceRefIfNeeded();
   const script = readScriptJson({ applyVoice: true });
   els.scriptEditor.value = `${JSON.stringify(script, null, 2)}\n`;
   const slug = els.slug.value.trim() || script.metadata?.title || "ai-video";
@@ -230,6 +318,7 @@ async function renderVideo() {
   }
 }
 
+els.generateScriptBtn.addEventListener("click", () => generateScriptFromRaw().catch(showError));
 els.promptBtn.addEventListener("click", () => createPrompt().catch(showError));
 els.copyPromptBtn.addEventListener("click", () => copyPrompt().catch(showError));
 els.formatBtn.addEventListener("click", () => {
@@ -240,14 +329,11 @@ els.formatBtn.addEventListener("click", () => {
   }
 });
 els.applyVoiceBtn.addEventListener("click", () => {
-  try {
-    applyVoiceToEditor();
-  } catch (error) {
-    showError(error);
-  }
+  applyVoiceToEditor().catch(showError);
 });
 els.validateBtn.addEventListener("click", () => validateScript().catch(showError));
 els.saveBtn.addEventListener("click", () => saveScript().catch(showError));
 els.renderBtn.addEventListener("click", () => renderVideo().catch(showError));
 
+syncVoiceOptions();
 loadStatus();

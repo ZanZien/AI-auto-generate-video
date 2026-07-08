@@ -11,11 +11,16 @@ import { TemplateScriptSchema } from "../render/template-script-schema.js";
 import { toSlug } from "../utils/slug.js";
 import { log } from "../utils/logger.js";
 import { buildScriptPrompt } from "./ai-script-generator.js";
+import { generateScriptFromRawScript } from "./raw-script-generator.js";
 
 config({ path: ".env.local" });
 
 const PORT = Number(process.env.WEB_PORT || 3210);
+const HOST = "127.0.0.1";
+const MAX_PORT_ATTEMPTS = 10;
+let activePort = PORT;
 const MAX_BODY_BYTES = 1024 * 1024;
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..", "..");
 const publicDir = join(here, "public");
@@ -58,19 +63,23 @@ function sendError(res: ServerResponse, status: number, error: unknown): void {
 }
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
+  const buffer = await readRawBody(req, MAX_BODY_BYTES);
+  if (buffer.length === 0) return {};
+  return JSON.parse(buffer.toString("utf8"));
+}
+
+async function readRawBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let bytes = 0;
 
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     bytes += buffer.length;
-    if (bytes > MAX_BODY_BYTES) throw new Error("Request body is too large.");
+    if (bytes > maxBytes) throw new Error("Request body is too large.");
     chunks.push(buffer);
   }
 
-  if (chunks.length === 0) return {};
-  const text = Buffer.concat(chunks).toString("utf8");
-  return JSON.parse(text);
+  return Buffer.concat(chunks);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -103,6 +112,11 @@ function parseScriptPayload(value: unknown) {
     return TemplateScriptSchema.parse(JSON.parse(value));
   }
   return TemplateScriptSchema.parse(value);
+}
+
+function uploadExtension(filename: string): string {
+  const ext = extname(filename).toLowerCase();
+  return [".wav", ".mp3", ".m4a", ".ogg", ".flac"].includes(ext) ? ext : ".wav";
 }
 
 async function serveFile(res: ServerResponse, path: string): Promise<void> {
@@ -141,7 +155,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, pathname: st
       ok: true,
       openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
       model: process.env.OPENAI_MODEL || "manual-prompt",
-      port: PORT,
+      port: activePort,
     });
     return;
   }
@@ -161,6 +175,53 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, pathname: st
     });
     const slug = slugFrom(readString(body, "slug") || idea);
     sendJson(res, 200, { ok: true, slug, prompt });
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/script-from-text") {
+    const body = await readBody(req);
+    if (!isRecord(body)) throw new Error("JSON body must be an object.");
+    const rawScript = readString(body, "rawScript").trim();
+    if (!rawScript) throw new Error("Raw script is required.");
+
+    const script = generateScriptFromRawScript({
+      rawScript,
+      title: readString(body, "title") || readString(body, "idea"),
+      style: readString(body, "style"),
+      sceneCount: readNumber(body, "sceneCount", 6),
+      channel: readString(body, "channel", "AI Video"),
+      voiceName: readString(body, "voiceName"),
+      voiceRefAudio: readString(body, "voiceRefAudio"),
+    });
+    const slug = slugFrom(readString(body, "slug") || script.metadata.title);
+    sendJson(res, 200, {
+      ok: true,
+      slug,
+      title: script.metadata.title,
+      sceneCount: script.scenes.length,
+      script,
+    });
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/upload-ref-audio") {
+    const rawFilename = Array.isArray(req.headers["x-filename"])
+      ? req.headers["x-filename"][0]
+      : req.headers["x-filename"];
+    const filename = rawFilename ? decodeURIComponent(rawFilename) : "voice.wav";
+    const buffer = await readRawBody(req, MAX_UPLOAD_BYTES);
+    if (buffer.length === 0) throw new Error("Audio clone file is empty.");
+
+    const dir = join(outputRoot, "_voice_refs");
+    await mkdir(dir, { recursive: true });
+    const baseName = slugFrom(filename.replace(/\.[^.]+$/, "")) || "voice";
+    const target = join(dir, `${Date.now()}-${baseName}${uploadExtension(filename)}`);
+    await writeFile(target, buffer);
+    sendJson(res, 200, {
+      ok: true,
+      refAudio: target,
+      path: `output/_voice_refs/${target.split(/[\\/]/).pop()}`,
+    });
     return;
   }
 
@@ -233,6 +294,31 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, "127.0.0.1", () => {
-  log.info(`Web UI running at http://127.0.0.1:${PORT}`);
-});
+function listen(port: number, attemptsLeft = MAX_PORT_ATTEMPTS): void {
+  server.removeAllListeners("error");
+  server.removeAllListeners("listening");
+
+  server.once("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE" && attemptsLeft > 0) {
+      const nextPort = port + 1;
+      log.info(`Port ${port} is already in use. Trying http://${HOST}:${nextPort}`);
+      listen(nextPort, attemptsLeft - 1);
+      return;
+    }
+
+    log.error("Web UI failed to start", error);
+    process.exit(1);
+  });
+
+  server.once("listening", () => {
+    activePort = port;
+    log.info(`Web UI running at http://${HOST}:${port}`);
+    if (port !== PORT) {
+      log.info(`WEB_PORT ${PORT} was busy, so this session is using ${port}.`);
+    }
+  });
+
+  server.listen(port, HOST);
+}
+
+listen(PORT);

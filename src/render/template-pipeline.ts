@@ -7,7 +7,7 @@ import { loadConfig } from "../config.js";
 import { createTtsClient } from "../tts/tts-client.js";
 import {
   getDurationSec,
-  concatWithSilence,
+  concatWithSilenceGaps,
   mixSfxOntoVoice,
   type SfxMixSpec,
 } from "../assets/audio-tools.js";
@@ -21,6 +21,11 @@ const TOTAL_STEPS = 8;
 const SCENE_GAP_SEC = 0.3;
 const OUTRO_HOLD_SEC = 3;
 const RENDER_FPS = 30;
+const MIN_VISUAL_SEC: Record<string, number> = {
+  hook: 5,
+  body: 5,
+  outro: 6,
+};
 
 /** Maps a scene role to a key the SFX selector understands (tier-3 defaults). */
 const TYPE_TO_SFX: Record<string, string> = {
@@ -59,8 +64,10 @@ export async function runTemplatePipeline(scriptPath: string): Promise<void> {
   const limit = pLimit(cfg.ttsConcurrency);
   const voiceDir = join(outputDir, "voice");
   const voiceName = script.voice.name?.trim();
-  const ttsOptions = { voiceName, speed: script.voice.speed };
+  const refAudio = script.voice.refAudio?.trim();
+  const ttsOptions = { voiceName, refAudio, speed: script.voice.speed };
   log.info(`  voice preset: ${voiceName || "server default"} (${script.voice.speed}x)`);
+  if (refAudio) log.info(`  clone ref audio: ${refAudio}`);
   await mkdir(voiceDir, { recursive: true });
   const sceneAudio = await Promise.all(
     script.scenes.map((scene) =>
@@ -71,6 +78,7 @@ export async function runTemplatePipeline(scriptPath: string): Promise<void> {
         const cacheMeta = {
           text: scene.voiceText,
           voiceName: voiceName ?? null,
+          refAudio: refAudio ?? null,
           speed: script.voice.speed,
         };
         if (existsSync(out) && (await jsonMatches(metaOut, cacheMeta))) {
@@ -92,14 +100,26 @@ export async function runTemplatePipeline(scriptPath: string): Promise<void> {
   log.step(4, TOTAL_STEPS, "Concat voice + compute timings");
   const voiceRawMp3 = join(outputDir, "voice-raw.mp3");
   const voiceMp3 = join(outputDir, "voice.mp3");
-  await concatWithSilence(sceneAudio.map((a) => a.path), SCENE_GAP_SEC, voiceRawMp3);
 
   let cursor = 0;
+  const lastIdx = script.scenes.length - 1;
   const sceneStarts: Record<string, number> = {};
   const sceneAudioById = new Map(sceneAudio.map((a) => [a.id, a]));
-  for (const a of sceneAudio) {
+  const sceneDisplayDurations = script.scenes.map((scene, index) => {
+    const audio = sceneAudioById.get(scene.id);
+    if (!audio) throw new Error(`Missing audio timing for scene: ${scene.id}`);
+    const naturalSec = audio.durationSec + (index < lastIdx ? SCENE_GAP_SEC : OUTRO_HOLD_SEC);
+    return Math.max(naturalSec, MIN_VISUAL_SEC[scene.type] ?? MIN_VISUAL_SEC.body);
+  });
+  const interSceneGaps = sceneAudio.slice(0, -1).map((audio, index) =>
+    Math.max(SCENE_GAP_SEC, sceneDisplayDurations[index]! - audio.durationSec),
+  );
+  await concatWithSilenceGaps(sceneAudio.map((a) => a.path), interSceneGaps, voiceRawMp3);
+
+  for (let i = 0; i < sceneAudio.length; i++) {
+    const a = sceneAudio[i]!;
     sceneStarts[a.id] = cursor;
-    cursor += a.durationSec + SCENE_GAP_SEC;
+    cursor += sceneDisplayDurations[i]!;
   }
 
   const subtitleCues: SubtitleCue[] = script.scenes.map((scene, index) => {
@@ -148,12 +168,10 @@ export async function runTemplatePipeline(scriptPath: string): Promise<void> {
   log.step(6, TOTAL_STEPS, "Render template clips + fit to narration");
   const clipsDir = join(outputDir, "clips");
   await mkdir(clipsDir, { recursive: true });
-  const lastIdx = script.scenes.length - 1;
   const fittedClips: string[] = [];
   for (let i = 0; i < script.scenes.length; i++) {
     const scene = script.scenes[i];
-    const dur = sceneAudio.find((a) => a.id === scene.id)!.durationSec;
-    const visualDur = dur + (i < lastIdx ? SCENE_GAP_SEC : OUTRO_HOLD_SEC);
+    const visualDur = sceneDisplayDurations[i]!;
 
     const rawClip = join(clipsDir, `scene-${scene.id}.mp4`);
     const fitClip = join(clipsDir, `scene-${scene.id}-fit.mp4`);

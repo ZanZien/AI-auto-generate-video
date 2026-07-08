@@ -72,6 +72,14 @@ export async function concatWithSilence(
   gapSec: number,
   outPath: string,
 ): Promise<void> {
+  await concatWithSilenceGaps(inputPaths, inputPaths.slice(0, -1).map(() => gapSec), outPath);
+}
+
+export async function concatWithSilenceGaps(
+  inputPaths: string[],
+  gapSecs: number[],
+  outPath: string,
+): Promise<void> {
   if (inputPaths.length === 0) throw new Error("concatWithSilence: empty inputPaths");
   if (inputPaths.length === 1) {
     // No concat needed — just normalize the single file
@@ -87,14 +95,20 @@ export async function concatWithSilence(
   const tmp = await mkdtemp(join(tmpdir(), "concat-"));
   try {
     // Generate WAV silence (lossless, no encoder priming pops)
-    const silencePath = join(tmp, "silence.wav");
-    await run("ffmpeg", [
-      "-y", "-f", "lavfi",
-      "-i", `anullsrc=r=44100:cl=mono`,
-      "-t", String(gapSec),
-      "-ac", "1", "-ar", "44100",
-      silencePath,
-    ]);
+    const silencePaths = await Promise.all(
+      inputPaths.slice(0, -1).map(async (_path, i) => {
+        const silencePath = join(tmp, `silence-${i}.wav`);
+        const gapSec = Math.max(0, gapSecs[i] ?? 0);
+        await run("ffmpeg", [
+          "-y", "-f", "lavfi",
+          "-i", `anullsrc=r=44100:cl=mono`,
+          "-t", gapSec.toFixed(3),
+          "-ac", "1", "-ar", "44100",
+          silencePath,
+        ]);
+        return silencePath;
+      }),
+    );
 
     // Build ffmpeg input args + concat filter graph.
     // We interleave: voice[0] silence voice[1] silence voice[2] ... voice[N-1]
@@ -132,7 +146,7 @@ export async function concatWithSilence(
 
     inputPaths.forEach((p, i) => {
       addInput(p);
-      if (i < inputPaths.length - 1) addInput(silencePath);
+      if (i < inputPaths.length - 1) addInput(silencePaths[i] ?? silencePaths[0]);
     });
 
     const concatFilter = `${labels.join("")}concat=n=${labels.length}:v=0:a=1[out]`;

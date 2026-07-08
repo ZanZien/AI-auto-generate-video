@@ -4,108 +4,290 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AI Video Studio</title>
+    <!-- Premium Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
     <link rel="stylesheet" href="/styles.css" />
     <script src="/app.js" defer></script>
   </head>
   <body>
+    <!-- Top Dashboard Header -->
     <header class="topbar">
-      <div>
-        <h1>AI Video Studio</h1>
-        <p id="statusText">Local web UI: tao prompt, validate script, luu va render video.</p>
+      <div class="brand">
+        <div class="logo-icon">
+          <i data-lucide="video" class="icon-pulse"></i>
+        </div>
+        <div>
+          <h1>AI Video Studio</h1>
+          <p id="statusText">Đang kết nối hệ thống...</p>
+        </div>
       </div>
       <div class="top-actions">
+        <span class="status-indicator-dot"></span>
         <span id="modelBadge" class="badge">no api</span>
       </div>
     </header>
 
+    <!-- Main Grid Workspace -->
     <main class="workspace">
+      <!-- COLUMN 1: INPUT CONTROLS -->
       <section class="panel left-panel">
-        <div class="section-title">
-          <h2>Idea</h2>
-          <span>1</span>
+        <div class="panel-header">
+          <div class="panel-title">
+            <i data-lucide="sliders" class="panel-icon"></i>
+            <h2>Cấu hình đầu vào</h2>
+          </div>
+          <span class="step-num">1</span>
         </div>
 
-        <label for="idea">Y tuong video</label>
-        <textarea id="idea" rows="7" placeholder="Vi du: clip day nau mi trung ca chua cho nguoi moi bat dau"></textarea>
+        <div class="scroll-container">
+          <!-- Section A: Kịch bản & Ý tưởng -->
+          <div class="panel-section">
+            <div class="section-subtitle">
+              <i data-lucide="sparkles"></i>
+              <h3>Ý tưởng & Kịch bản</h3>
+            </div>
+            
+            <div class="input-group">
+              <label for="idea">Ý tưởng / Tiêu đề video</label>
+              <textarea id="idea" rows="3" placeholder="Ví dụ: clip dạy nấu mì trứng cà chua cho người mới bắt đầu..."></textarea>
+            </div>
 
-        <div class="form-grid">
-          <div>
-            <label for="style">Phong cach</label>
-            <select id="style">
-              <option value="giang day ngan gon, than thien">Giang day</option>
-              <option value="vui nhon, nhanh, co punchline">Vui nhon</option>
-              <option value="tin tuc nhanh, ro y chinh">Tin tuc</option>
-              <option value="review thuc te, co so sanh">Review</option>
-            </select>
+            <div class="button-row-stacked">
+              <div class="button-row">
+                <button id="promptBtn" class="secondary" type="button">
+                  <i data-lucide="sparkles"></i> Tạo prompt
+                </button>
+                <button id="copyPromptBtn" class="ghost" type="button">
+                  <i data-lucide="copy"></i> Sao chép
+                </button>
+              </div>
+            </div>
+
+            <div class="input-group prompt-box-group">
+              <label for="promptBox">Prompt gợi ý cho ChatGPT</label>
+              <textarea id="promptBox" class="prompt-editor" spellcheck="false" placeholder="Nhấn nút 'Tạo prompt' ở trên để tạo và sao chép kịch bản chi tiết..."></textarea>
+            </div>
+
+            <div class="input-group divider-top">
+              <label for="rawScript">Kịch bản thoại có sẵn</label>
+              <textarea id="rawScript" rows="4" placeholder="Dán lời thoại video vào đây. Mỗi phân đoạn cách nhau bởi dòng trống để tự động tách scene..."></textarea>
+            </div>
+
+            <div class="button-row">
+              <button id="generateScriptBtn" class="primary" type="button">
+                <i data-lucide="wand-2"></i> Sinh kịch bản JSON
+              </button>
+            </div>
           </div>
-          <div>
-            <label for="sceneCount">So canh</label>
-            <input id="sceneCount" type="number" min="3" max="8" value="6" />
-          </div>
-          <div>
-            <label for="channel">Kenh</label>
-            <input id="channel" value="AI Video" />
-          </div>
-          <div>
-            <label for="voiceName">Giong doc</label>
-            <select id="voiceName">
-              <option value="">Theo JSON / bridge</option>
-              <option value="Ngọc Linh">Ngọc Linh</option>
-              <option value="Ngọc Lan">Ngọc Lan</option>
-              <option value="Mỹ Duyên">Mỹ Duyên</option>
-              <option value="Trúc Ly">Trúc Ly</option>
-              <option value="Gia Bảo">Gia Bảo</option>
-              <option value="Thái Sơn">Thái Sơn</option>
-              <option value="Đức Trí">Đức Trí</option>
-              <option value="Xuân Vĩnh">Xuân Vĩnh</option>
-              <option value="Trọng Hữu">Trọng Hữu</option>
-              <option value="Bình An">Bình An</option>
-            </select>
-          </div>
-          <div>
-            <label for="slug">Thu muc output</label>
-            <input id="slug" placeholder="auto" />
+
+          <!-- Section B: Thiết lập Render -->
+          <div class="panel-section">
+            <div class="section-subtitle">
+              <i data-lucide="settings-2"></i>
+              <h3>Thiết lập Render & Giọng nói</h3>
+            </div>
+
+            <div class="form-grid">
+              <div class="input-group">
+                <label for="style">Phong cách video</label>
+                <div class="select-wrapper">
+                  <select id="style">
+                    <option value="giang day ngan gon, than thien">Giảng dạy ngắn gọn</option>
+                    <option value="vui nhon, nhanh, co punchline">Vui nhộn, lôi cuốn</option>
+                    <option value="tin tuc nhanh, ro y chinh">Tin tức nhanh, rõ ý</option>
+                    <option value="review thuc te, co so sanh">Review thực tế</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div class="input-group">
+                <label for="sceneCount">Số cảnh tối đa</label>
+                <input id="sceneCount" type="number" min="3" max="8" value="6" />
+              </div>
+
+              <div class="input-group">
+                <label for="channel">Tên kênh (Watermark)</label>
+                <input id="channel" value="AI Video" />
+              </div>
+
+              <div class="input-group">
+                <label for="slug">Thư mục đầu ra</label>
+                <input id="slug" placeholder="auto" />
+              </div>
+            </div>
+
+            <div class="input-group select-voice-group">
+              <label for="voiceName">Giọng đọc mẫu</label>
+              <div class="select-wrapper">
+                <select id="voiceName">
+                  <option value="">Theo JSON / bridge</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="voice-clone-card">
+              <div class="voice-clone-header">
+                <i data-lucide="mic"></i>
+                <span>Nhân bản giọng nói (Audio Clone)</span>
+              </div>
+              <div class="voice-clone-body">
+                <div class="input-group">
+                  <label for="voiceRefAudio">Đường dẫn file Audio</label>
+                  <input id="voiceRefAudio" placeholder="C:\path\to\voice.wav" />
+                </div>
+                
+                <div class="upload-area">
+                  <label for="voiceRefFile" class="custom-file-upload">
+                    <i data-lucide="upload-cloud"></i>
+                    <span>Tải file ghi âm mẫu (.wav, .mp3)</span>
+                    <input id="voiceRefFile" type="file" accept="audio/*" />
+                  </label>
+                  <span id="fileSelectedName" class="file-name-display">Chưa có file nào được chọn</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-
-        <div class="button-row">
-          <button id="promptBtn" class="primary" type="button">Tao prompt</button>
-          <button id="copyPromptBtn" type="button">Copy prompt</button>
-        </div>
-
-        <label for="promptBox">Prompt cho ChatGPT</label>
-        <textarea id="promptBox" class="prompt-editor" spellcheck="false" placeholder="Bam Tao prompt, copy noi dung nay sang ChatGPT, roi dan script.json vao khung ben phai."></textarea>
       </section>
 
+      <!-- COLUMN 2: JSON EDITOR & OUTPUT -->
       <section class="panel editor-panel">
-        <div class="section-title">
-          <h2>Script</h2>
-          <span>2</span>
+        <div class="panel-header">
+          <div class="panel-title">
+            <i data-lucide="file-code" class="panel-icon"></i>
+            <h2>Biên tập Script JSON</h2>
+          </div>
+          <span class="step-num">2</span>
         </div>
 
-        <label for="scriptEditor">script.json tu ChatGPT</label>
-        <textarea id="scriptEditor" class="code-editor" spellcheck="false" placeholder="Dan JSON vao day. Co the dan ca block ```json ... ```"></textarea>
-
-        <div class="button-row">
-          <button id="formatBtn" type="button">Format JSON</button>
-          <button id="applyVoiceBtn" type="button">Gan giong</button>
-          <button id="validateBtn" type="button">Validate</button>
-          <button id="saveBtn" type="button">Luu script</button>
-          <button id="renderBtn" class="primary" type="button">Render video</button>
+        <div class="editor-container">
+          <textarea id="scriptEditor" class="code-editor" spellcheck="false" placeholder="Dán nội dung script.json hoặc bấm sinh kịch bản từ cột trái..."></textarea>
         </div>
 
-        <div id="result" class="result">
-          <div class="result-line">Chua co output.</div>
+        <div class="control-actions">
+          <div class="button-row">
+            <button id="formatBtn" class="action-btn" type="button" title="Format định dạng JSON">
+              <i data-lucide="code"></i> Format
+            </button>
+            <button id="applyVoiceBtn" class="action-btn" type="button" title="Gán giọng đọc đã chọn vào JSON">
+              <i data-lucide="volume-2"></i> Gán giọng
+            </button>
+            <button id="validateBtn" class="action-btn" type="button" title="Kiểm tra tính hợp lệ của kịch bản">
+              <i data-lucide="check-circle-2"></i> Validate
+            </button>
+            <button id="saveBtn" class="action-btn" type="button" title="Lưu lại file kịch bản">
+              <i data-lucide="save"></i> Lưu script
+            </button>
+          </div>
+          
+          <button id="renderBtn" class="primary render-button" type="button">
+            <i data-lucide="play-circle"></i> Render Video
+          </button>
+        </div>
+
+        <!-- Terminal-like Console Result Output -->
+        <div class="console-box">
+          <div class="console-header">
+            <div class="console-dots">
+              <span class="dot red"></span>
+              <span class="dot yellow"></span>
+              <span class="dot green"></span>
+            </div>
+            <span class="console-title">Hệ thống đầu ra (Console Logs)</span>
+          </div>
+          <div id="result" class="result">
+            <div class="result-line muted">Chưa có hoạt động nào được thực thi.</div>
+          </div>
         </div>
       </section>
 
+      <!-- COLUMN 3: PHONE PREVIEW -->
       <section class="panel preview-panel">
-        <div class="section-title">
-          <h2>Preview</h2>
-          <span>3</span>
+        <div class="panel-header">
+          <div class="panel-title">
+            <i data-lucide="monitor-play" class="panel-icon"></i>
+            <h2>Xem trước kết quả</h2>
+          </div>
+          <span class="step-num">3</span>
         </div>
-        <video id="videoPreview" controls playsinline></video>
+
+        <!-- Beautiful Phone Wrapper -->
+        <div class="phone-mockup-wrapper">
+          <div class="phone-mockup">
+            <div class="phone-notch"></div>
+            <div class="phone-screen">
+              <div class="phone-volume-btn"></div>
+              <div class="phone-power-btn"></div>
+              <div class="preview-media-container">
+                <video id="videoPreview" controls playsinline></video>
+                <div class="preview-placeholder" id="previewPlaceholder">
+                  <div class="placeholder-content">
+                    <div class="pulse-circle">
+                      <i data-lucide="clapperboard"></i>
+                    </div>
+                    <h4>Sẵn sàng phát video</h4>
+                    <p>Bấm nút "Render Video" ở bước 2 để tạo và xem thử video tại đây.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
+
+    <!-- Page Initialization & Extra Micro-interactions -->
+    <script>
+      // Initialize Lucide Icons
+      lucide.createIcons();
+
+      // Custom File input interaction to show selected file name
+      const fileInput = document.getElementById('voiceRefFile');
+      const fileNameDisplay = document.getElementById('fileSelectedName');
+      const voiceRefAudioInput = document.getElementById('voiceRefAudio');
+
+      if (fileInput && fileNameDisplay) {
+        fileInput.addEventListener('change', (e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            const file = e.target.files[0];
+            fileNameDisplay.textContent = file.name;
+            fileNameDisplay.classList.add('active');
+            
+            // Set path text input indicator
+            if (voiceRefAudioInput) {
+              voiceRefAudioInput.value = "[Tệp đính kèm: " + file.name + "]";
+            }
+          } else {
+            fileNameDisplay.textContent = 'Chưa có file nào được chọn';
+            fileNameDisplay.classList.remove('active');
+          }
+        });
+      }
+
+      // Hide placeholder if video source changes
+      const videoPreview = document.getElementById('videoPreview');
+      const previewPlaceholder = document.getElementById('previewPlaceholder');
+      if (videoPreview && previewPlaceholder) {
+        videoPreview.addEventListener('play', () => {
+          previewPlaceholder.style.opacity = '0';
+          previewPlaceholder.style.pointerEvents = 'none';
+        });
+        
+        // Use a MutationObserver to watch src changes on video preview
+        const observer = new MutationObserver((mutations) => {
+          mutations.forEach((mutation) => {
+            if (mutation.attributeName === 'src' && videoPreview.src) {
+              previewPlaceholder.style.opacity = '0';
+              previewPlaceholder.style.pointerEvents = 'none';
+            }
+          });
+        });
+        observer.observe(videoPreview, { attributes: true });
+      }
+    </script>
   </body>
 </html>
