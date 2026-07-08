@@ -8,6 +8,7 @@ export interface RawScriptGenerationRequest {
   channel?: string;
   voiceName?: string;
   voiceRefAudio?: string;
+  voiceRefText?: string;
   sourceUrl?: string;
   sourceDomain?: string;
 }
@@ -397,6 +398,7 @@ export function generateScriptFromRawScript(req: RawScriptGenerationRequest): Te
       provider: "omnivoice",
       ...(req.voiceName?.trim() ? { name: req.voiceName.trim() } : {}),
       ...(req.voiceRefAudio?.trim() ? { refAudio: req.voiceRefAudio.trim() } : {}),
+      ...(req.voiceRefText?.trim() ? { refText: req.voiceRefText.trim() } : {}),
       speed: foldText(req.style ?? "").includes("nhanh") ? 1.04 : 1,
     },
     aspect: "9:16",

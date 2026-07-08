@@ -1,13 +1,13 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import pLimit from "p-limit";
 import { TemplateScriptSchema, type TemplateScript } from "./template-script-schema.js";
 import { loadConfig } from "../config.js";
 import { createTtsClient } from "../tts/tts-client.js";
 import {
   getDurationSec,
-  concatWithSilenceGaps,
+  concatWithSilence,
   mixSfxOntoVoice,
   type SfxMixSpec,
 } from "../assets/audio-tools.js";
@@ -21,11 +21,6 @@ const TOTAL_STEPS = 8;
 const SCENE_GAP_SEC = 0.3;
 const OUTRO_HOLD_SEC = 3;
 const RENDER_FPS = 30;
-const MIN_VISUAL_SEC: Record<string, number> = {
-  hook: 5,
-  body: 5,
-  outro: 6,
-};
 
 /** Maps a scene role to a key the SFX selector understands (tier-3 defaults). */
 const TYPE_TO_SFX: Record<string, string> = {
@@ -42,6 +37,21 @@ async function jsonMatches(path: string, expected: unknown): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function resolveRefAudioPath(value: string): string {
+  const trimmed = value.trim();
+  if (/^\[.*\]$/.test(trimmed)) {
+    throw new Error(
+      "voice.refAudio is an attachment label, not a real file path. Upload the clone audio again or paste a full .wav/.mp3 path.",
+    );
+  }
+
+  const candidate = isAbsolute(trimmed) ? trimmed : resolve(process.cwd(), trimmed);
+  if (!existsSync(candidate)) {
+    throw new Error(`voice.refAudio file not found: ${trimmed}`);
+  }
+  return candidate;
 }
 
 export async function runTemplatePipeline(scriptPath: string): Promise<void> {
@@ -64,10 +74,13 @@ export async function runTemplatePipeline(scriptPath: string): Promise<void> {
   const limit = pLimit(cfg.ttsConcurrency);
   const voiceDir = join(outputDir, "voice");
   const voiceName = script.voice.name?.trim();
-  const refAudio = script.voice.refAudio?.trim();
-  const ttsOptions = { voiceName, refAudio, speed: script.voice.speed };
-  log.info(`  voice preset: ${voiceName || "server default"} (${script.voice.speed}x)`);
+  const refAudioRaw = script.voice.refAudio?.trim();
+  const refAudio = refAudioRaw ? resolveRefAudioPath(refAudioRaw) : undefined;
+  const refText = script.voice.refText?.trim();
+  const ttsOptions = { voiceName, refAudio, refText, speed: script.voice.speed };
+  log.info(`  voice preset: ${refAudio ? "custom reference" : voiceName || "server default"} (${script.voice.speed}x)`);
   if (refAudio) log.info(`  clone ref audio: ${refAudio}`);
+  if (refText) log.info(`  clone ref text: ${refText.length} chars`);
   await mkdir(voiceDir, { recursive: true });
   const sceneAudio = await Promise.all(
     script.scenes.map((scene) =>
@@ -76,9 +89,11 @@ export async function runTemplatePipeline(scriptPath: string): Promise<void> {
         const srtOut = join(voiceDir, `scene-${scene.id}.srt`);
         const metaOut = join(voiceDir, `scene-${scene.id}.meta.json`);
         const cacheMeta = {
+          ttsCacheVersion: 3,
           text: scene.voiceText,
           voiceName: voiceName ?? null,
           refAudio: refAudio ?? null,
+          refText: refText ?? null,
           speed: script.voice.speed,
         };
         if (existsSync(out) && (await jsonMatches(metaOut, cacheMeta))) {
@@ -100,6 +115,7 @@ export async function runTemplatePipeline(scriptPath: string): Promise<void> {
   log.step(4, TOTAL_STEPS, "Concat voice + compute timings");
   const voiceRawMp3 = join(outputDir, "voice-raw.mp3");
   const voiceMp3 = join(outputDir, "voice.mp3");
+  await concatWithSilence(sceneAudio.map((a) => a.path), SCENE_GAP_SEC, voiceRawMp3);
 
   let cursor = 0;
   const lastIdx = script.scenes.length - 1;
@@ -108,18 +124,13 @@ export async function runTemplatePipeline(scriptPath: string): Promise<void> {
   const sceneDisplayDurations = script.scenes.map((scene, index) => {
     const audio = sceneAudioById.get(scene.id);
     if (!audio) throw new Error(`Missing audio timing for scene: ${scene.id}`);
-    const naturalSec = audio.durationSec + (index < lastIdx ? SCENE_GAP_SEC : OUTRO_HOLD_SEC);
-    return Math.max(naturalSec, MIN_VISUAL_SEC[scene.type] ?? MIN_VISUAL_SEC.body);
+    return audio.durationSec + (index < lastIdx ? SCENE_GAP_SEC : OUTRO_HOLD_SEC);
   });
-  const interSceneGaps = sceneAudio.slice(0, -1).map((audio, index) =>
-    Math.max(SCENE_GAP_SEC, sceneDisplayDurations[index]! - audio.durationSec),
-  );
-  await concatWithSilenceGaps(sceneAudio.map((a) => a.path), interSceneGaps, voiceRawMp3);
 
   for (let i = 0; i < sceneAudio.length; i++) {
     const a = sceneAudio[i]!;
     sceneStarts[a.id] = cursor;
-    cursor += sceneDisplayDurations[i]!;
+    cursor += a.durationSec + SCENE_GAP_SEC;
   }
 
   const subtitleCues: SubtitleCue[] = script.scenes.map((scene, index) => {

@@ -2,7 +2,7 @@
 import { createReadStream, existsSync } from "node:fs";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { dirname, extname, join, resolve } from "node:path";
+import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { ZodError } from "zod";
@@ -107,11 +107,27 @@ function outputDirFor(slugValue: string): string {
   return dir;
 }
 
-function parseScriptPayload(value: unknown) {
-  if (typeof value === "string") {
-    return TemplateScriptSchema.parse(JSON.parse(value));
+function resolveRefAudioPath(value: string | undefined): string | undefined {
+  const refAudio = value?.trim();
+  if (!refAudio) return undefined;
+  if (/^\[.*\]$/.test(refAudio)) {
+    throw new Error(
+      "voice.refAudio is an attachment label, not a real file path. Upload the clone audio again or paste a full .wav/.mp3 path.",
+    );
   }
-  return TemplateScriptSchema.parse(value);
+
+  const target = isAbsolute(refAudio) ? refAudio : resolve(repoRoot, refAudio);
+  if (!existsSync(target)) {
+    throw new Error(`voice.refAudio file not found: ${refAudio}`);
+  }
+  return target;
+}
+
+function parseScriptPayload(value: unknown) {
+  const script = typeof value === "string" ? TemplateScriptSchema.parse(JSON.parse(value)) : TemplateScriptSchema.parse(value);
+  const refAudio = resolveRefAudioPath(script.voice.refAudio);
+  if (refAudio) script.voice.refAudio = refAudio;
+  return script;
 }
 
 function uploadExtension(filename: string): string {
@@ -192,6 +208,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, pathname: st
       channel: readString(body, "channel", "AI Video"),
       voiceName: readString(body, "voiceName"),
       voiceRefAudio: readString(body, "voiceRefAudio"),
+      voiceRefText: readString(body, "voiceRefText"),
     });
     const slug = slugFrom(readString(body, "slug") || script.metadata.title);
     sendJson(res, 200, {

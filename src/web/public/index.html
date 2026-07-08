@@ -139,7 +139,11 @@
                   <label for="voiceRefAudio">Đường dẫn file Audio</label>
                   <input id="voiceRefAudio" placeholder="C:\path\to\voice.wav" />
                 </div>
-                
+                <div class="input-group">
+                  <label for="voiceRefText">Noi dung trong audio mau</label>
+                  <input id="voiceRefText" placeholder="Nhap loi thoai trong file clone neu co" />
+                </div>
+
                 <div class="upload-area">
                   <label for="voiceRefFile" class="custom-file-upload">
                     <i data-lucide="upload-cloud"></i>
@@ -248,7 +252,6 @@
       // Custom File input interaction to show selected file name
       const fileInput = document.getElementById('voiceRefFile');
       const fileNameDisplay = document.getElementById('fileSelectedName');
-      const voiceRefAudioInput = document.getElementById('voiceRefAudio');
 
       if (fileInput && fileNameDisplay) {
         fileInput.addEventListener('change', (e) => {
@@ -256,11 +259,6 @@
             const file = e.target.files[0];
             fileNameDisplay.textContent = file.name;
             fileNameDisplay.classList.add('active');
-            
-            // Set path text input indicator
-            if (voiceRefAudioInput) {
-              voiceRefAudioInput.value = "[Tệp đính kèm: " + file.name + "]";
-            }
           } else {
             fileNameDisplay.textContent = 'Chưa có file nào được chọn';
             fileNameDisplay.classList.remove('active');

@@ -51,8 +51,9 @@ export class OmniVoiceClient implements TtsClient {
     const payload: Record<string, string | number> = { text };
     const voiceName = options?.voiceName?.trim();
     const refAudio = options?.refAudio?.trim();
+    const refText = options?.refText?.trim();
 
-    if (voiceName) {
+    if (voiceName && !refAudio) {
       payload.voice = voiceName;
       payload.voiceName = voiceName;
       payload.speaker = voiceName;
@@ -62,6 +63,7 @@ export class OmniVoiceClient implements TtsClient {
       payload.refAudio = refAudio;
       payload.referenceAudio = refAudio;
     }
+    if (refText) payload.ref_text = refText;
     if (options?.speed) payload.speed = options.speed;
 
     for (let attempt = 0; attempt < 4; attempt++) {

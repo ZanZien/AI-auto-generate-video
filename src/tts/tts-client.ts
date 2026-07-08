@@ -5,6 +5,7 @@
 export interface TtsGenerateOptions {
   voiceName?: string;
   refAudio?: string;
+  refText?: string;
   speed?: number;
 }
 

@@ -8,7 +8,9 @@ const els = {
   channel: document.querySelector("#channel"),
   voiceName: document.querySelector("#voiceName"),
   voiceRefAudio: document.querySelector("#voiceRefAudio"),
+  voiceRefText: document.querySelector("#voiceRefText"),
   voiceRefFile: document.querySelector("#voiceRefFile"),
+  fileSelectedName: document.querySelector("#fileSelectedName"),
   slug: document.querySelector("#slug"),
   generateScriptBtn: document.querySelector("#generateScriptBtn"),
   promptBtn: document.querySelector("#promptBtn"),
@@ -67,6 +69,7 @@ function formPayload() {
     channel: els.channel.value.trim() || "AI Video",
     voiceName: els.voiceName.value.trim(),
     voiceRefAudio: els.voiceRefAudio.value.trim(),
+    voiceRefText: els.voiceRefText.value.trim(),
     slug: els.slug.value.trim(),
   };
 }
@@ -97,23 +100,30 @@ async function postJson(url, body) {
 
 async function uploadVoiceRefIfNeeded() {
   const file = els.voiceRefFile.files?.[0];
-  if (!file) return els.voiceRefAudio.value.trim();
-
-  const response = await fetch("/api/upload-ref-audio", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/octet-stream",
-      "X-Filename": encodeURIComponent(file.name),
-    },
-    body: await file.arrayBuffer(),
-  });
-  const data = await response.json();
-  if (!response.ok || data.ok === false) {
-    throw new Error(data.error || response.statusText);
+  const typedPath = els.voiceRefAudio.value.trim();
+  if (file) {
+    const response = await fetch("/api/upload-ref-audio", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "X-Filename": encodeURIComponent(file.name),
+      },
+      body: await file.arrayBuffer(),
+    });
+    const data = await response.json();
+    if (!response.ok || data.ok === false) {
+      throw new Error(data.error || response.statusText);
+    }
+    els.voiceRefAudio.value = data.refAudio;
+    els.voiceRefFile.value = "";
+    if (els.fileSelectedName) els.fileSelectedName.textContent = `Da tai: ${file.name}`;
+    return data.refAudio;
   }
-  els.voiceRefAudio.value = data.refAudio;
-  els.voiceRefFile.value = "";
-  return data.refAudio;
+
+  if (/^\[.*\]$/.test(typedPath)) {
+    throw new Error("Audio clone khong phai duong dan file that. Hay chon file bang nut upload, hoac dan duong dan day du toi file .wav/.mp3.");
+  }
+  return typedPath;
 }
 
 function clearResult() {
@@ -183,7 +193,8 @@ function extractJsonObject(text) {
 function applySelectedVoice(script) {
   const voiceName = els.voiceName.value.trim();
   const refAudio = els.voiceRefAudio.value.trim();
-  if (!voiceName && !refAudio) return script;
+  const refText = els.voiceRefText.value.trim();
+  if (!voiceName && !refAudio && !refText) return script;
 
   script.voice = {
     provider: script.voice?.provider || "omnivoice",
@@ -193,6 +204,7 @@ function applySelectedVoice(script) {
   if (voiceName) script.voice.name = voiceName;
   else if (refAudio) delete script.voice.name;
   if (refAudio) script.voice.refAudio = refAudio;
+  if (refText) script.voice.refText = refText;
   return script;
 }
 
@@ -334,6 +346,13 @@ els.applyVoiceBtn.addEventListener("click", () => {
 els.validateBtn.addEventListener("click", () => validateScript().catch(showError));
 els.saveBtn.addEventListener("click", () => saveScript().catch(showError));
 els.renderBtn.addEventListener("click", () => renderVideo().catch(showError));
+
+els.voiceRefFile.addEventListener("change", () => {
+  const file = els.voiceRefFile.files?.[0];
+  if (els.fileSelectedName) {
+    els.fileSelectedName.textContent = file ? file.name : "Chua co file nao duoc chon";
+  }
+});
 
 syncVoiceOptions();
 loadStatus();

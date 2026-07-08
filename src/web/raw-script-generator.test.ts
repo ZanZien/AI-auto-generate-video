@@ -93,8 +93,10 @@ describe("raw script generator", () => {
     const script = generateScriptFromRawScript({
       rawScript: ["Mo dau ngan gon.", "Noi dung chinh de nghe thu.", "Ket lai ro rang."].join("\n"),
       voiceRefAudio: "C:\\voices\\clone.wav",
+      voiceRefText: "Day la giong mau cua toi.",
     });
 
     expect(script.voice.refAudio).toBe("C:\\voices\\clone.wav");
+    expect(script.voice.refText).toBe("Day la giong mau cua toi.");
   });
 });
