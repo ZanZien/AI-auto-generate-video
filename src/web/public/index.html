@@ -77,6 +77,25 @@
               <textarea id="rawScript" rows="4" placeholder="Dán lời thoại video vào đây. Mỗi phân đoạn cách nhau bởi dòng trống để tự động tách scene..."></textarea>
             </div>
 
+            <div class="form-grid">
+              <div class="input-group">
+                <label for="scriptMode">Chế độ kịch bản</label>
+                <div class="select-wrapper">
+                  <select id="scriptMode">
+                    <option value="standard">Video một giọng</option>
+                    <option value="dialogue">Hội thoại nhiều nhân vật</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="input-group">
+                <label for="detectCharactersBtn">Nhân vật</label>
+                <button id="detectCharactersBtn" class="action-btn" type="button">
+                  <i data-lucide="users"></i> Phát hiện
+                </button>
+              </div>
+            </div>
+
             <div class="button-row">
               <button id="generateScriptBtn" class="primary" type="button">
                 <i data-lucide="wand-2"></i> Sinh kịch bản JSON
@@ -152,6 +171,16 @@
                   </label>
                   <span id="fileSelectedName" class="file-name-display">Chưa có file nào được chọn</span>
                 </div>
+              </div>
+            </div>
+
+            <div id="dialogueVoiceCard" class="dialogue-card" hidden>
+              <div class="voice-clone-header">
+                <i data-lucide="users"></i>
+                <span>Giọng từng nhân vật hội thoại</span>
+              </div>
+              <div class="dialogue-card-body">
+                <div id="dialogueCharacters" class="character-list"></div>
               </div>
             </div>
           </div>

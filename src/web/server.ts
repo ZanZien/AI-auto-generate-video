@@ -96,6 +96,22 @@ function readNumber(body: Record<string, unknown>, key: string, fallback: number
   return typeof value === "number" ? value : fallback;
 }
 
+function readCharacterVoices(body: Record<string, unknown>): Record<string, { voiceName?: string; refAudio?: string; refText?: string }> {
+  const value = body.characterVoices;
+  if (!isRecord(value)) return {};
+
+  const voices: Record<string, { voiceName?: string; refAudio?: string; refText?: string }> = {};
+  for (const [speaker, rawVoice] of Object.entries(value)) {
+    if (!isRecord(rawVoice)) continue;
+    voices[speaker] = {
+      voiceName: readString(rawVoice, "voiceName"),
+      refAudio: readString(rawVoice, "refAudio"),
+      refText: readString(rawVoice, "refText"),
+    };
+  }
+  return voices;
+}
+
 function slugFrom(value: string): string {
   return toSlug(value).replace(/[^a-z0-9-]/g, "").slice(0, 60) || "untitled";
 }
@@ -107,18 +123,18 @@ function outputDirFor(slugValue: string): string {
   return dir;
 }
 
-function resolveRefAudioPath(value: string | undefined): string | undefined {
+function resolveRefAudioPath(value: string | undefined, field = "voice.refAudio"): string | undefined {
   const refAudio = value?.trim();
   if (!refAudio) return undefined;
   if (/^\[.*\]$/.test(refAudio)) {
     throw new Error(
-      "voice.refAudio is an attachment label, not a real file path. Upload the clone audio again or paste a full .wav/.mp3 path.",
+      `${field} is an attachment label, not a real file path. Upload the clone audio again or paste a full .wav/.mp3 path.`,
     );
   }
 
   const target = isAbsolute(refAudio) ? refAudio : resolve(repoRoot, refAudio);
   if (!existsSync(target)) {
-    throw new Error(`voice.refAudio file not found: ${refAudio}`);
+    throw new Error(`${field} file not found: ${refAudio}`);
   }
   return target;
 }
@@ -127,6 +143,10 @@ function parseScriptPayload(value: unknown) {
   const script = typeof value === "string" ? TemplateScriptSchema.parse(JSON.parse(value)) : TemplateScriptSchema.parse(value);
   const refAudio = resolveRefAudioPath(script.voice.refAudio);
   if (refAudio) script.voice.refAudio = refAudio;
+  for (const [speaker, character] of Object.entries(script.characters ?? {})) {
+    const characterRefAudio = resolveRefAudioPath(character.voice.refAudio, `characters.${speaker}.voice.refAudio`);
+    if (characterRefAudio) character.voice.refAudio = characterRefAudio;
+  }
   return script;
 }
 
@@ -205,10 +225,12 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, pathname: st
       title: readString(body, "title") || readString(body, "idea"),
       style: readString(body, "style"),
       sceneCount: readNumber(body, "sceneCount", 6),
+      scriptMode: readString(body, "scriptMode") === "dialogue" ? "dialogue" : "standard",
       channel: readString(body, "channel", "AI Video"),
       voiceName: readString(body, "voiceName"),
       voiceRefAudio: readString(body, "voiceRefAudio"),
       voiceRefText: readString(body, "voiceRefText"),
+      characterVoices: readCharacterVoices(body),
     });
     const slug = slugFrom(readString(body, "slug") || script.metadata.title);
     sendJson(res, 200, {

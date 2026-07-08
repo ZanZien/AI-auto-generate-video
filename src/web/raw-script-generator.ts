@@ -1,22 +1,32 @@
 import { TemplateScriptSchema, type TemplateScript, type TemplateSceneType } from "../render/template-script-schema.js";
 
+export interface CharacterVoiceRequest {
+  voiceName?: string;
+  refAudio?: string;
+  refText?: string;
+}
+
 export interface RawScriptGenerationRequest {
   rawScript: string;
   title?: string;
   style?: string;
   sceneCount?: number;
+  scriptMode?: "standard" | "dialogue";
   channel?: string;
   voiceName?: string;
   voiceRefAudio?: string;
   voiceRefText?: string;
+  characterVoices?: Record<string, CharacterVoiceRequest>;
   sourceUrl?: string;
   sourceDomain?: string;
 }
 
 type TemplateInputs = Record<string, unknown>;
+type DialogueTurn = { speaker: string; text: string };
 
 const DEFAULT_CHANNEL = "AI Video";
 const MAX_SCENES = 8;
+const MAX_DIALOGUE_TURNS = 40;
 const MIN_SCENES = 3;
 
 function clampSceneCount(value: number | undefined, fallback: number): number {
@@ -66,6 +76,44 @@ function cleanNarration(input: string): string {
       .map(stripSceneLabel)
       .join(" "),
   );
+}
+
+function normalizeSpeaker(input: string): string {
+  return normalizeSpace(input.replace(/^[\s"'[(]+|[\s"'\])]+$/g, "")).slice(0, 32);
+}
+
+function parseDialogueTurns(input: string): DialogueTurn[] {
+  const turns: DialogueTurn[] = [];
+  const speakerLine = /^\s*(?:[-*]\s*)?([A-Za-z0-9À-ỹĐđ _.-]{1,32})\s*(?::|：|--?|–|—)\s*(.+)$/u;
+
+  for (const rawLine of input.replace(/\r\n/g, "\n").split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const match = line.match(speakerLine);
+    if (match) {
+      const speaker = normalizeSpeaker(match[1] ?? "");
+      const text = normalizeSpace(match[2] ?? "");
+      const foldedSpeaker = foldText(speaker);
+      if (/^(title|tieu de|visual|hinh|hinh anh|on screen|text|sfx|music|nhac)$/.test(foldedSpeaker)) continue;
+      if (speaker && text) turns.push({ speaker, text });
+      continue;
+    }
+
+    if (turns.length > 0) {
+      const last = turns[turns.length - 1]!;
+      last.text = normalizeSpace(`${last.text} ${line}`);
+    }
+  }
+
+  return turns.filter((turn) => turn.speaker && turn.text);
+}
+
+function shouldUseDialogueMode(req: RawScriptGenerationRequest, turns: DialogueTurn[]): boolean {
+  if (req.scriptMode === "dialogue") return true;
+  if (req.scriptMode === "standard") return false;
+  const speakers = new Set(turns.map((turn) => turn.speaker));
+  return turns.length >= MIN_SCENES && speakers.size >= 2;
 }
 
 function splitParagraphs(input: string): string[] {
@@ -373,9 +421,107 @@ function sceneForText(text: string, index: number, lastIndex: number, title: str
   };
 }
 
+function uniqueSpeakers(turns: DialogueTurn[]): string[] {
+  const seen = new Set<string>();
+  const speakers: string[] = [];
+  for (const turn of turns) {
+    if (seen.has(turn.speaker)) continue;
+    seen.add(turn.speaker);
+    speakers.push(turn.speaker);
+  }
+  return speakers;
+}
+
+function voiceForRequest(req: RawScriptGenerationRequest, speed: number, speaker?: string) {
+  const characterVoice = speaker ? req.characterVoices?.[speaker] : undefined;
+  const voiceName = characterVoice?.voiceName?.trim() || (!speaker ? req.voiceName?.trim() : "");
+  const refAudio = characterVoice?.refAudio?.trim() || (!speaker ? req.voiceRefAudio?.trim() : "");
+  const refText = characterVoice?.refText?.trim() || (!speaker ? req.voiceRefText?.trim() : "");
+
+  return {
+    provider: "omnivoice" as const,
+    ...(voiceName ? { name: voiceName } : {}),
+    ...(refAudio ? { refAudio } : {}),
+    ...(refText ? { refText } : {}),
+    speed,
+  };
+}
+
+function inputsForDialogueTurn(turn: DialogueTurn, index: number, title: string, channel: string): TemplateInputs {
+  return {
+    kicker: turn.speaker,
+    number: String(index + 1).padStart(2, "0"),
+    label: titleFromText(turn.text, 34),
+    note: shorten(turn.text, 92),
+    brand: channel,
+    title: titleFromText(turn.text, 34),
+    subtitle: `${turn.speaker}: ${shorten(turn.text, 70)}`,
+    source: title,
+  };
+}
+
+function sceneForDialogueTurn(turn: DialogueTurn, index: number, title: string, channel: string): TemplateSceneType {
+  return {
+    id: `turn-${index + 1}`,
+    type: "dialogue",
+    speaker: turn.speaker,
+    voiceText: turn.text,
+    templateId: "frame-vignelli",
+    inputs: inputsForDialogueTurn(turn, index, title, channel),
+  };
+}
+
+function generateDialogueScript(req: RawScriptGenerationRequest, turns: DialogueTurn[]): TemplateScript {
+  if (turns.length < MIN_SCENES) {
+    throw new Error("Kich ban hoi thoai can it nhat 3 luot noi, vi du A:, B:, A:.");
+  }
+  if (turns.length > MAX_DIALOGUE_TURNS) {
+    throw new Error(`Kich ban hoi thoai dang co ${turns.length} luot noi. Toi da hien tai la ${MAX_DIALOGUE_TURNS} luot.`);
+  }
+
+  const channel = req.channel?.trim() || DEFAULT_CHANNEL;
+  const speed = foldText(req.style ?? "").includes("nhanh") ? 1.04 : 1;
+  const title = req.title?.trim() ? shorten(trimPunctuation(req.title), 74) : shorten(trimPunctuation(turns[0]?.text ?? "Hoi thoai"), 74);
+  const characters = Object.fromEntries(
+    uniqueSpeakers(turns).map((speaker) => [
+      speaker,
+      {
+        label: speaker,
+        voice: voiceForRequest(req, speed, speaker),
+      },
+    ]),
+  );
+
+  const script = {
+    version: "1.0",
+    renderer: "hyperframes",
+    mode: "dialogue",
+    metadata: {
+      title,
+      source: {
+        url: req.sourceUrl?.trim() || "local-raw-script",
+        domain: req.sourceDomain?.trim() || "Manual Script",
+        image: null,
+      },
+      channel,
+    },
+    voice: voiceForRequest(req, speed),
+    characters,
+    aspect: "9:16",
+    scenes: turns.map((turn, index) => sceneForDialogueTurn(turn, index, title, channel)),
+  };
+
+  return TemplateScriptSchema.parse(script);
+}
+
 export function generateScriptFromRawScript(req: RawScriptGenerationRequest): TemplateScript {
   const rawScript = req.rawScript.trim();
   if (!rawScript) throw new Error("Raw script is required.");
+
+  const dialogueTurns = parseDialogueTurns(rawScript);
+  if (shouldUseDialogueMode(req, dialogueTurns)) {
+    return generateDialogueScript(req, dialogueTurns);
+  }
 
   const channel = req.channel?.trim() || DEFAULT_CHANNEL;
   const title = deriveTitle(req);

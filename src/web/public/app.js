@@ -3,6 +3,10 @@ const els = {
   modelBadge: document.querySelector("#modelBadge"),
   idea: document.querySelector("#idea"),
   rawScript: document.querySelector("#rawScript"),
+  scriptMode: document.querySelector("#scriptMode"),
+  detectCharactersBtn: document.querySelector("#detectCharactersBtn"),
+  dialogueVoiceCard: document.querySelector("#dialogueVoiceCard"),
+  dialogueCharacters: document.querySelector("#dialogueCharacters"),
   style: document.querySelector("#style"),
   sceneCount: document.querySelector("#sceneCount"),
   channel: document.querySelector("#channel"),
@@ -39,39 +43,200 @@ const availableVoices = [
   "Th\u1ee5c \u0110oan",
 ];
 
-function syncVoiceOptions() {
-  const current = els.voiceName.value;
-  els.voiceName.innerHTML = "";
+function fillVoiceSelect(select, current = "") {
+  select.innerHTML = "";
 
   const defaultOption = document.createElement("option");
   defaultOption.value = "";
   defaultOption.textContent = "Theo JSON / bridge";
-  els.voiceName.appendChild(defaultOption);
+  select.appendChild(defaultOption);
 
   for (const voice of availableVoices) {
     const option = document.createElement("option");
     option.value = voice;
     option.textContent = voice;
-    els.voiceName.appendChild(option);
+    select.appendChild(option);
   }
 
   if (availableVoices.includes(current)) {
-    els.voiceName.value = current;
+    select.value = current;
   }
+}
+
+function syncVoiceOptions() {
+  fillVoiceSelect(els.voiceName, els.voiceName.value);
 }
 
 function formPayload() {
   return {
     idea: els.idea.value.trim(),
     rawScript: els.rawScript.value.trim(),
+    scriptMode: els.scriptMode.value,
     style: els.style.value,
     sceneCount: Number(els.sceneCount.value || 6),
     channel: els.channel.value.trim() || "AI Video",
     voiceName: els.voiceName.value.trim(),
     voiceRefAudio: els.voiceRefAudio.value.trim(),
     voiceRefText: els.voiceRefText.value.trim(),
+    characterVoices: readCharacterVoiceMap(),
     slug: els.slug.value.trim(),
   };
+}
+
+function normalizeSpeaker(input) {
+  return input.replace(/^[\s"'[(]+|[\s"'\])]+$/g, "").replace(/\s+/g, " ").trim().slice(0, 32);
+}
+
+function detectDialogueSpeakers(rawScript = els.rawScript.value) {
+  const speakers = [];
+  const seen = new Set();
+  const speakerLine = /^\s*(?:[-*]\s*)?([A-Za-z0-9À-ỹĐđ _.-]{1,32})\s*(?::|：|--?|–|—)\s*(.+)$/u;
+
+  for (const line of rawScript.replace(/\r\n/g, "\n").split("\n")) {
+    const match = line.trim().match(speakerLine);
+    if (!match) continue;
+    const speaker = normalizeSpeaker(match[1] || "");
+    const folded = speaker
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\u0111/g, "d")
+      .replace(/\u0110/g, "D")
+      .toLowerCase();
+    if (/^(title|tieu de|visual|hinh|hinh anh|on screen|text|sfx|music|nhac)$/.test(folded)) continue;
+    if (!speaker || seen.has(speaker)) continue;
+    seen.add(speaker);
+    speakers.push(speaker);
+  }
+
+  return speakers;
+}
+
+function renderCharacterRows(speakers) {
+  els.dialogueCharacters.innerHTML = "";
+  els.dialogueVoiceCard.hidden = speakers.length === 0;
+
+  for (const speaker of speakers) {
+    const row = document.createElement("div");
+    row.className = "character-row";
+    row.dataset.speaker = speaker;
+
+    const header = document.createElement("div");
+    header.className = "character-row-header";
+    header.innerHTML = `<span class="speaker-chip">${speaker}</span><span class="character-name">${speaker}</span>`;
+
+    const grid = document.createElement("div");
+    grid.className = "character-grid";
+
+    const voiceGroup = document.createElement("div");
+    voiceGroup.className = "input-group";
+    const voiceLabel = document.createElement("label");
+    voiceLabel.textContent = "Giọng preset";
+    const voiceWrap = document.createElement("div");
+    voiceWrap.className = "select-wrapper";
+    const voiceSelect = document.createElement("select");
+    voiceSelect.className = "character-voice";
+    fillVoiceSelect(voiceSelect);
+    voiceWrap.appendChild(voiceSelect);
+    voiceGroup.append(voiceLabel, voiceWrap);
+
+    const refGroup = document.createElement("div");
+    refGroup.className = "input-group";
+    const refLabel = document.createElement("label");
+    refLabel.textContent = "Audio clone";
+    const refInput = document.createElement("input");
+    refInput.className = "character-ref-audio";
+    refInput.placeholder = "C:\\path\\to\\voice.wav";
+    refGroup.append(refLabel, refInput);
+
+    const refTextGroup = document.createElement("div");
+    refTextGroup.className = "input-group character-ref-text-group";
+    const refTextLabel = document.createElement("label");
+    refTextLabel.textContent = "Nội dung audio mẫu";
+    const refTextInput = document.createElement("input");
+    refTextInput.className = "character-ref-text";
+    refTextInput.placeholder = "Lời thoại trong file clone nếu có";
+    refTextGroup.append(refTextLabel, refTextInput);
+
+    const uploadGroup = document.createElement("div");
+    uploadGroup.className = "character-upload";
+    const uploadLabel = document.createElement("label");
+    uploadLabel.className = "mini-file-upload";
+    uploadLabel.innerHTML = '<i data-lucide="upload-cloud"></i><span>Tải file</span>';
+    const fileInput = document.createElement("input");
+    fileInput.className = "character-ref-file";
+    fileInput.type = "file";
+    fileInput.accept = "audio/*";
+    uploadLabel.appendChild(fileInput);
+    const fileName = document.createElement("span");
+    fileName.className = "file-name-display character-file-name";
+    fileName.textContent = "Chưa có file";
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files?.[0];
+      fileName.textContent = file ? file.name : "Chưa có file";
+      fileName.classList.toggle("active", Boolean(file));
+    });
+    uploadGroup.append(uploadLabel, fileName);
+
+    grid.append(voiceGroup, refGroup, refTextGroup, uploadGroup);
+    row.append(header, grid);
+    els.dialogueCharacters.appendChild(row);
+  }
+
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function ensureDialogueRowsFromScript() {
+  if (els.scriptMode.value !== "dialogue") return;
+  if (els.dialogueCharacters.children.length > 0) return;
+  renderCharacterRows(detectDialogueSpeakers());
+}
+
+function syncUIFromScriptJson() {
+  try {
+    const jsonText = extractJsonObject(els.scriptEditor.value);
+    const script = JSON.parse(jsonText);
+    if (script.mode === "dialogue") {
+      els.scriptMode.value = "dialogue";
+      els.dialogueVoiceCard.hidden = false;
+      
+      const speakers = Object.keys(script.characters || {});
+      if (speakers.length > 0) {
+        renderCharacterRows(speakers);
+        // Pre-fill fields
+        for (const [speaker, charSpec] of Object.entries(script.characters)) {
+          const row = els.dialogueCharacters.querySelector(`.character-row[data-speaker="${speaker}"]`);
+          if (row) {
+            const select = row.querySelector(".character-voice");
+            const refAudio = row.querySelector(".character-ref-audio");
+            const refText = row.querySelector(".character-ref-text");
+            
+            if (select && charSpec.voice?.name) select.value = charSpec.voice.name;
+            if (refAudio && charSpec.voice?.refAudio) refAudio.value = charSpec.voice.refAudio;
+            if (refText && charSpec.voice?.refText) refText.value = charSpec.voice.refText;
+          }
+        }
+      }
+    } else {
+      els.scriptMode.value = "standard";
+      els.dialogueVoiceCard.hidden = true;
+    }
+  } catch (e) {
+    // Fail silently if JSON is incomplete or invalid
+  }
+}
+
+function readCharacterVoiceMap() {
+  const voices = {};
+  for (const row of els.dialogueCharacters.querySelectorAll(".character-row")) {
+    const speaker = row.dataset.speaker;
+    if (!speaker) continue;
+    voices[speaker] = {
+      voiceName: row.querySelector(".character-voice")?.value.trim() || "",
+      refAudio: row.querySelector(".character-ref-audio")?.value.trim() || "",
+      refText: row.querySelector(".character-ref-text")?.value.trim() || "",
+    };
+  }
+  return voices;
 }
 
 function setBusy(button, busy, label) {
@@ -98,32 +263,61 @@ async function postJson(url, body) {
   return data;
 }
 
+async function uploadAudioFile(file) {
+  const response = await fetch("/api/upload-ref-audio", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "X-Filename": encodeURIComponent(file.name),
+    },
+    body: await file.arrayBuffer(),
+  });
+  const data = await response.json();
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.error || response.statusText);
+  }
+  return data.refAudio;
+}
+
 async function uploadVoiceRefIfNeeded() {
   const file = els.voiceRefFile.files?.[0];
   const typedPath = els.voiceRefAudio.value.trim();
   if (file) {
-    const response = await fetch("/api/upload-ref-audio", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/octet-stream",
-        "X-Filename": encodeURIComponent(file.name),
-      },
-      body: await file.arrayBuffer(),
-    });
-    const data = await response.json();
-    if (!response.ok || data.ok === false) {
-      throw new Error(data.error || response.statusText);
-    }
-    els.voiceRefAudio.value = data.refAudio;
+    const refAudio = await uploadAudioFile(file);
+    els.voiceRefAudio.value = refAudio;
     els.voiceRefFile.value = "";
     if (els.fileSelectedName) els.fileSelectedName.textContent = `Da tai: ${file.name}`;
-    return data.refAudio;
+    return refAudio;
   }
 
   if (/^\[.*\]$/.test(typedPath)) {
     throw new Error("Audio clone khong phai duong dan file that. Hay chon file bang nut upload, hoac dan duong dan day du toi file .wav/.mp3.");
   }
   return typedPath;
+}
+
+async function uploadCharacterVoicesIfNeeded() {
+  for (const row of els.dialogueCharacters.querySelectorAll(".character-row")) {
+    const speaker = row.dataset.speaker;
+    if (!speaker) continue;
+    const fileInput = row.querySelector(".character-ref-file");
+    const refInput = row.querySelector(".character-ref-audio");
+    const file = fileInput?.files?.[0];
+    if (file) {
+      const refAudio = await uploadAudioFile(file);
+      if (refInput) refInput.value = refAudio;
+      fileInput.value = "";
+      const fileName = row.querySelector(".character-file-name");
+      if (fileName) {
+        fileName.textContent = `Da tai: ${file.name}`;
+        fileName.classList.add("active");
+      }
+    }
+    const typedPath = refInput?.value.trim() || "";
+    if (/^\[.*\]$/.test(typedPath)) {
+      throw new Error(`Audio clone cua nhan vat ${speaker} khong phai duong dan file that. Hay chon file bang nut upload, hoac dan duong dan day du.`);
+    }
+  }
 }
 
 function clearResult() {
@@ -194,17 +388,38 @@ function applySelectedVoice(script) {
   const voiceName = els.voiceName.value.trim();
   const refAudio = els.voiceRefAudio.value.trim();
   const refText = els.voiceRefText.value.trim();
-  if (!voiceName && !refAudio && !refText) return script;
+  
+  if (voiceName || refAudio || refText) {
+    script.voice = {
+      provider: script.voice?.provider || "omnivoice",
+      speed: typeof script.voice?.speed === "number" ? script.voice.speed : 1,
+      ...script.voice,
+    };
+    if (voiceName) script.voice.name = voiceName;
+    else if (refAudio) delete script.voice.name;
+    if (refAudio) script.voice.refAudio = refAudio;
+    if (refText) script.voice.refText = refText;
+  }
 
-  script.voice = {
-    provider: script.voice?.provider || "omnivoice",
-    speed: typeof script.voice?.speed === "number" ? script.voice.speed : 1,
-    ...script.voice,
-  };
-  if (voiceName) script.voice.name = voiceName;
-  else if (refAudio) delete script.voice.name;
-  if (refAudio) script.voice.refAudio = refAudio;
-  if (refText) script.voice.refText = refText;
+  if (els.scriptMode.value === "dialogue" || script.mode === "dialogue" || (script.scenes && script.scenes.some(s => s.speaker))) {
+    const charVoices = readCharacterVoiceMap();
+    if (Object.keys(charVoices).length > 0) {
+      script.characters = script.characters || {};
+      for (const [speaker, voiceSpec] of Object.entries(charVoices)) {
+        const charSpeed = script.characters[speaker]?.voice?.speed || script.voice?.speed || 1;
+        script.characters[speaker] = {
+          label: speaker,
+          voice: {
+            provider: "omnivoice",
+            speed: charSpeed,
+            ...(voiceSpec.voiceName ? { name: voiceSpec.voiceName } : {}),
+            ...(voiceSpec.refAudio ? { refAudio: voiceSpec.refAudio } : {}),
+            ...(voiceSpec.refText ? { refText: voiceSpec.refText } : {}),
+          }
+        };
+      }
+    }
+  }
   return script;
 }
 
@@ -242,18 +457,30 @@ async function createPrompt() {
 }
 
 async function generateScriptFromRaw() {
-  const payload = formPayload();
-  if (!payload.rawScript) throw new Error("Dan kich ban san truoc.");
-
+  if (!els.rawScript.value.trim()) throw new Error("Dan kich ban san truoc.");
+  
+  // Auto-detect dialogue mode from script structure
+  const detected = detectDialogueSpeakers();
+  if (detected.length >= 2 && els.scriptMode.value !== "dialogue") {
+    els.scriptMode.value = "dialogue";
+    els.dialogueVoiceCard.hidden = false;
+    renderCharacterRows(detected);
+  }
+  
   setBusy(els.generateScriptBtn, true, "Dang sinh...");
   try {
-    payload.voiceRefAudio = await uploadVoiceRefIfNeeded();
+    await uploadVoiceRefIfNeeded();
+    if (els.scriptMode.value === "dialogue") {
+      await uploadCharacterVoicesIfNeeded();
+    }
+    const payload = formPayload();
     const data = await postJson("/api/script-from-text", {
       ...payload,
       title: payload.idea,
     });
     els.slug.value = data.slug;
     els.scriptEditor.value = `${JSON.stringify(data.script, null, 2)}\n`;
+    syncUIFromScriptJson();
     clearResult();
     addResultLine(`Da sinh script.json: ${data.title}`);
     addResultLine(`So scene: ${data.sceneCount}. Co the bam Validate, Luu script hoac Render video.`);
@@ -278,18 +505,20 @@ function formatScript() {
 
 async function applyVoiceToEditor() {
   await uploadVoiceRefIfNeeded();
+  if (els.scriptMode.value === "dialogue") {
+    await uploadCharacterVoicesIfNeeded();
+  }
   const script = readScriptJson({ applyVoice: true });
   els.scriptEditor.value = `${JSON.stringify(script, null, 2)}\n`;
   clearResult();
-  addResultLine(
-    els.voiceName.value.trim() || els.voiceRefAudio.value.trim()
-      ? `Da gan giong: ${els.voiceName.value.trim() || "bridge default"}${els.voiceRefAudio.value.trim() ? " + audio clone" : ""}`
-      : "Chua chon giong, JSON duoc giu nguyen.",
-  );
+  addResultLine("Da gan giong vao JSON.");
 }
 
 async function validateScript() {
   await uploadVoiceRefIfNeeded();
+  if (els.scriptMode.value === "dialogue") {
+    await uploadCharacterVoicesIfNeeded();
+  }
   const script = readScriptJson({ applyVoice: true });
   els.scriptEditor.value = `${JSON.stringify(script, null, 2)}\n`;
   const data = await postJson("/api/validate-script", { script });
@@ -300,6 +529,9 @@ async function validateScript() {
 
 async function saveScript() {
   await uploadVoiceRefIfNeeded();
+  if (els.scriptMode.value === "dialogue") {
+    await uploadCharacterVoicesIfNeeded();
+  }
   const script = readScriptJson({ applyVoice: true });
   els.scriptEditor.value = `${JSON.stringify(script, null, 2)}\n`;
   const slug = els.slug.value.trim() || script.metadata?.title || "ai-video";
@@ -354,5 +586,18 @@ els.voiceRefFile.addEventListener("change", () => {
   }
 });
 
+els.scriptMode.addEventListener("change", () => {
+  const isDiag = els.scriptMode.value === "dialogue";
+  els.dialogueVoiceCard.hidden = !isDiag;
+  if (isDiag) {
+    ensureDialogueRowsFromScript();
+  }
+});
+
+els.detectCharactersBtn.addEventListener("click", () => {
+  renderCharacterRows(detectDialogueSpeakers());
+});
+
 syncVoiceOptions();
 loadStatus();
+syncUIFromScriptJson();

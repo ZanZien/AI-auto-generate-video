@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import pLimit from "p-limit";
-import { TemplateScriptSchema, type TemplateScript } from "./template-script-schema.js";
+import { TemplateScriptSchema, type TemplateScript, type TemplateVoiceType } from "./template-script-schema.js";
 import { loadConfig } from "../config.js";
 import { createTtsClient } from "../tts/tts-client.js";
 import {
@@ -27,6 +27,15 @@ const TYPE_TO_SFX: Record<string, string> = {
   hook: "hook",
   body: "callout",
   outro: "outro",
+  dialogue: "callout",
+};
+
+type ResolvedVoice = {
+  label: string;
+  voiceName?: string;
+  refAudio?: string;
+  refText?: string;
+  speed: number;
 };
 
 async function jsonMatches(path: string, expected: unknown): Promise<boolean> {
@@ -39,19 +48,43 @@ async function jsonMatches(path: string, expected: unknown): Promise<boolean> {
   }
 }
 
-function resolveRefAudioPath(value: string): string {
+function resolveRefAudioPath(value: string, field = "voice.refAudio"): string {
   const trimmed = value.trim();
   if (/^\[.*\]$/.test(trimmed)) {
     throw new Error(
-      "voice.refAudio is an attachment label, not a real file path. Upload the clone audio again or paste a full .wav/.mp3 path.",
+      `${field} is an attachment label, not a real file path. Upload the clone audio again or paste a full .wav/.mp3 path.`,
     );
   }
 
   const candidate = isAbsolute(trimmed) ? trimmed : resolve(process.cwd(), trimmed);
   if (!existsSync(candidate)) {
-    throw new Error(`voice.refAudio file not found: ${trimmed}`);
+    throw new Error(`${field} file not found: ${trimmed}`);
   }
   return candidate;
+}
+
+function resolveVoiceSpec(voice: TemplateVoiceType, label: string, refAudioField = "voice.refAudio"): ResolvedVoice {
+  const refAudioRaw = voice.refAudio?.trim();
+  return {
+    label,
+    voiceName: voice.name?.trim() || undefined,
+    refAudio: refAudioRaw ? resolveRefAudioPath(refAudioRaw, refAudioField) : undefined,
+    refText: voice.refText?.trim() || undefined,
+    speed: voice.speed,
+  };
+}
+
+function voiceOptionsFor(voice: ResolvedVoice) {
+  return {
+    voiceName: voice.voiceName,
+    refAudio: voice.refAudio,
+    refText: voice.refText,
+    speed: voice.speed,
+  };
+}
+
+function subtitleTextForScene(scene: TemplateScript["scenes"][number]): string {
+  return scene.speaker ? `${scene.speaker}: ${scene.voiceText}` : scene.voiceText;
 }
 
 export async function runTemplatePipeline(scriptPath: string): Promise<void> {
@@ -66,43 +99,55 @@ export async function runTemplatePipeline(scriptPath: string): Promise<void> {
 
   // STEP 2 — script.txt for CapCut
   log.step(2, TOTAL_STEPS, "Write script.txt");
-  await writeFile(join(outputDir, "script.txt"), script.scenes.map((s) => s.voiceText).join("\n\n"));
+  await writeFile(join(outputDir, "script.txt"), script.scenes.map(subtitleTextForScene).join("\n\n"));
 
   // STEP 3 — TTS per scene (idempotent)
   log.step(3, TOTAL_STEPS, "TTS each scene");
   const ttsClient = createTtsClient(cfg);
   const limit = pLimit(cfg.ttsConcurrency);
   const voiceDir = join(outputDir, "voice");
-  const voiceName = script.voice.name?.trim();
-  const refAudioRaw = script.voice.refAudio?.trim();
-  const refAudio = refAudioRaw ? resolveRefAudioPath(refAudioRaw) : undefined;
-  const refText = script.voice.refText?.trim();
-  const ttsOptions = { voiceName, refAudio, refText, speed: script.voice.speed };
-  log.info(`  voice preset: ${refAudio ? "custom reference" : voiceName || "server default"} (${script.voice.speed}x)`);
-  if (refAudio) log.info(`  clone ref audio: ${refAudio}`);
-  if (refText) log.info(`  clone ref text: ${refText.length} chars`);
+  const globalVoice = resolveVoiceSpec(script.voice, "global");
+  const characterVoices = new Map(
+    Object.entries(script.characters ?? {}).map(([speaker, character]) => [
+      speaker,
+      resolveVoiceSpec(character.voice, speaker, `characters.${speaker}.voice.refAudio`),
+    ]),
+  );
+  const voiceForScene = (scene: TemplateScript["scenes"][number]) =>
+    scene.speaker ? characterVoices.get(scene.speaker) ?? globalVoice : globalVoice;
+  log.info(
+    `  voice preset: ${globalVoice.refAudio ? "custom reference" : globalVoice.voiceName || "server default"} (${globalVoice.speed}x)`,
+  );
+  if (globalVoice.refAudio) log.info(`  clone ref audio: ${globalVoice.refAudio}`);
+  if (globalVoice.refText) log.info(`  clone ref text: ${globalVoice.refText.length} chars`);
+  if (characterVoices.size > 0) {
+    log.info(`  dialogue voices: ${Array.from(characterVoices.keys()).join(", ")}`);
+  }
   await mkdir(voiceDir, { recursive: true });
   const sceneAudio = await Promise.all(
     script.scenes.map((scene) =>
       limit(async () => {
+        const sceneVoice = voiceForScene(scene);
         const out = join(voiceDir, `scene-${scene.id}.mp3`);
         const srtOut = join(voiceDir, `scene-${scene.id}.srt`);
         const metaOut = join(voiceDir, `scene-${scene.id}.meta.json`);
         const cacheMeta = {
-          ttsCacheVersion: 3,
+          ttsCacheVersion: 4,
           text: scene.voiceText,
-          voiceName: voiceName ?? null,
-          refAudio: refAudio ?? null,
-          refText: refText ?? null,
-          speed: script.voice.speed,
+          speaker: scene.speaker ?? null,
+          voiceLabel: sceneVoice.label,
+          voiceName: sceneVoice.voiceName ?? null,
+          refAudio: sceneVoice.refAudio ?? null,
+          refText: sceneVoice.refText ?? null,
+          speed: sceneVoice.speed,
         };
         if (existsSync(out) && (await jsonMatches(metaOut, cacheMeta))) {
           const dur = await getDurationSec(out);
           log.info(`  scene ${scene.id}: REUSE mp3 (${dur.toFixed(2)}s)`);
           return { id: scene.id, path: out, durationSec: dur };
         }
-        log.info(`  TTS scene ${scene.id} (${scene.voiceText.length} chars)...`);
-        await ttsClient.generate(scene.voiceText, out, srtOut, ttsOptions);
+        log.info(`  TTS scene ${scene.id}${scene.speaker ? ` [${scene.speaker}]` : ""} (${scene.voiceText.length} chars)...`);
+        await ttsClient.generate(scene.voiceText, out, srtOut, voiceOptionsFor(sceneVoice));
         await writeFile(metaOut, `${JSON.stringify(cacheMeta, null, 2)}\n`, "utf8");
         const dur = await getDurationSec(out);
         log.info(`  scene ${scene.id}: ${dur.toFixed(2)}s`);
@@ -141,7 +186,7 @@ export async function runTemplatePipeline(scriptPath: string): Promise<void> {
       index: index + 1,
       startSec,
       endSec: startSec + audio.durationSec,
-      text: scene.voiceText,
+      text: subtitleTextForScene(scene),
     };
   });
   await writeSubtitleFiles(outputDir, subtitleCues);

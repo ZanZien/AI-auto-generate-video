@@ -887,3 +887,112 @@ video {
     max-width: 250px;
   }
 }
+
+/* DIALOGUE & CHARACTER SECTIONS */
+.dialogue-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  background: rgba(255, 255, 255, 0.01);
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.dialogue-card-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.character-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.character-row {
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: var(--border-radius-md);
+  background: rgba(255, 255, 255, 0.015);
+  padding: 12px;
+}
+
+.character-row-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.speaker-chip {
+  background: var(--accent-gradient);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  box-shadow: 0 2px 4px rgba(99, 102, 241, 0.2);
+}
+
+.character-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.character-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.character-ref-text-group {
+  grid-column: span 2;
+}
+
+.character-upload {
+  grid-column: span 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.mini-file-upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.mini-file-upload input[type="file"] {
+  display: none;
+}
+
+.mini-file-upload:hover {
+  border-color: var(--border-hover);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.character-file-name {
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.character-file-name.active {
+  color: var(--accent-teal);
+  font-weight: 500;
+}
+
